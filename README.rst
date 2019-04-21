@@ -1,50 +1,8 @@
-
 ********************
 RLSeq2Seq
 ********************
 
-.. image:: https://img.shields.io/badge/contributions-welcome-brightgreen.svg?style=flat
-    :target: https://github.com/yaserkl/RLSeq2Seq/pulls
-.. image:: https://img.shields.io/badge/Made%20with-Python-1f425f.svg
-      :target: https://www.python.org/
-.. image:: https://img.shields.io/pypi/l/ansicolortags.svg
-      :target: https://github.com/yaserkl/RLSeq2Seq/blob/master/LICENSE.txt
-.. image:: https://img.shields.io/github/contributors/Naereen/StrapDown.js.svg
-      :target: https://github.com/yaserkl/RLSeq2Seq/graphs/contributors
-.. image:: https://img.shields.io/github/issues/Naereen/StrapDown.js.svg
-      :target: https://github.com/yaserkl/RLSeq2Seq/issues
-.. image:: https://img.shields.io/badge/arXiv-1805.09461-red.svg?style=flat
-   :target: https://arxiv.org/abs/1805.09461
-
-NOTE: THE CODE IS UNDER DEVELOPMENT, PLEASE ALWAYS PULL THE LATEST VERSION FROM HERE.
-
-This repository contains the code developed in TensorFlow_ for the following paper:
-
-
-| `Deep Reinforcement Learning For Sequence to Sequence Models`_,
-| by: `Yaser Keneshloo`_, `Tian Shi`_, `Naren Ramakrishnan`_, and `Chandan K. Reddy`_
-
-
-.. _Deep Reinforcement Learning For Sequence to Sequence Models: https://arxiv.org/abs/1805.09461
-.. _TensorFlow: https://www.tensorflow.org/
-.. _Yaser Keneshloo: https://github.com/yaserkl
-.. _Tian Shi: http://life-tp.com/Tian_Shi/
-.. _Chandan K. Reddy: http://people.cs.vt.edu/~reddy/
-.. _Naren Ramakrishnan: http://people.cs.vt.edu/naren/
-
-
-If you used this code, please kindly consider citing the following paper:
-
-.. code:: shell
-
-    @article{keneshloo2018deep,
-     title={Deep Reinforcement Learning For Sequence to Sequence Models},
-     author={Keneshloo, Yaser and Shi, Tian and Ramakrishnan, Naren and Reddy, Chandan K.},
-     journal={arXiv preprint arXiv:1805.09461},
-     year={2018}
-    }
-
-
+Reinforced learning for sequency generation.
 
 #################
 Table of Contents
@@ -81,27 +39,19 @@ Requirements
 -------------
 Python
 -------------
-  - Use Python 2.7
+  - Use Python 3.6+
 
 Python requirements can be installed as follows:
 
 .. code:: bash
 
-    pip install -r python_requirements.txt
+    pip install -r requirements.txt
 
 -------------
 TensorFlow
 -------------
 
   - Tensorflow 1.10.1
-
--------------
-GPU
--------------
-
-  - CUDA 9
-  - Cudnn 7.1
-
 ---------------------------------------------------------------------------
 
 ============

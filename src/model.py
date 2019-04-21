@@ -14,7 +14,8 @@
 # limitations under the License.
 # ==============================================================================
 
-"""This file contains code to build and run the tensorflow graph for the sequence-to-sequence model"""
+"""This file contains code to build and run the tensorflow graph for the 
+sequence-to-sequence model"""
 
 import os
 import time
@@ -28,9 +29,16 @@ from rouge_tensor import rouge_l_fscore
 import data
 from replay_buffer import Transition
 
+
 FLAGS = tf.app.flags.FLAGS
 
-class SummarizationModel(object):
+
+class BaseModel:
+  def build_graph(self):
+    pass
+
+
+class SummarizationModel(BaseModel):
   """A class to represent a sequence-to-sequence model for text summarization. Supports both baseline mode, pointer-generator mode, and coverage"""
 
   def __init__(self, hps, vocab):
@@ -454,7 +462,8 @@ class SummarizationModel(object):
       self._shared_train_op = optimizer.apply_gradients(zip(grads, tvars), global_step=self.global_step, name='train_step')
 
   def build_graph(self):
-    """Add the placeholders, model, global step, train_op and summaries to the graph"""
+    """Add the placeholders, model, global step, train_op and summaries to the
+    graph"""
     tf.logging.info('Building graph...')
     t0 = time.time()
     self.global_step = tf.Variable(0, name='global_step', trainable=False)
@@ -887,6 +896,7 @@ class SummarizationModel(object):
 
     return results['ids'], results['probs'], new_states, attn_dists, final_dists, p_gens, new_coverage, output, temporal_e
 
+
 def _mask_and_avg(values, padding_mask):
   """Applies mask to values then returns overall average (a scalar)
 
@@ -902,6 +912,7 @@ def _mask_and_avg(values, padding_mask):
   values_per_step = [v * padding_mask[:,dec_step] for dec_step,v in enumerate(values)] # list of k
   values_per_ex = sum(values_per_step)/dec_lens # shape (batch_size); normalized value for each batch member
   return tf.reduce_mean(values_per_ex) # overall average
+
 
 def _coverage_loss(attn_dists, padding_mask):
   """Calculates the coverage loss from the attention distributions.
