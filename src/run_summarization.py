@@ -106,7 +106,8 @@ flags.DEFINE_boolean('avoid_trigrams', True, 'Avoids trigram during decoding')
 flags.DEFINE_boolean('share_decoder_weights', False, 'Share output matrix '
     'projection with word embedding') # Eq 13. in https://arxiv.org/pdf/1705.04304.pdf
 
-# Pointer-generator with Self-Critic policy gradient: https://arxiv.org/pdf/1705.04304.pdf
+# Pointer-generator with Self-Critic policy gradient:
+# https://arxiv.org/pdf/1705.04304.pdf
 flags.DEFINE_boolean('rl_training', False, 'Use policy-gradient training by '
     'collecting rewards at the end of sequence.')
 flags.DEFINE_boolean('self_critic', True, 'Uses greedy sentence reward as '
@@ -189,7 +190,6 @@ flags.DEFINE_integer('k', 1, 'number of samples')
 flags.DEFINE_boolean('scheduled_sampling_final_dist', True, 'Whether to use '
     'final distribution or vocab distribution for scheduled sampling')
 
-￼
 # Coverage hyperparameters
 flags.DEFINE_boolean('coverage', False, 'Use coverage mechanism. Note, the '
     'experiments reported in the ACL paper train WITHOUT coverage until '
@@ -216,6 +216,9 @@ flags.DEFINE_boolean('debug', False, "Run in tensorflow's debug mode (watches '
 
 
 class ModelHelper(object):
+  def __init__(self, model, vocab):
+    self.model = model
+    self.vocab = vocab
 
   def calc_running_avg_loss(self, loss, running_avg_loss, step, decay=0.99):
     """Calculate the running average loss via exponential decay.
@@ -301,7 +304,8 @@ class ModelHelper(object):
     sess.run(tf.global_variables_initializer())
 
     # load all non-coverage weights from checkpoint
-    saver = tf.train.Saver([v for v in tf.global_variables() if "coverage" not in v.name and "Adagrad" not in v.name])
+    saver = tf.train.Saver([v for v in tf.global_variables() 
+       if "coverage" not in v.name and "Adagrad" not in v.name])
     print("restoring non-coverage variables...")
     curr_ckpt = util.load_ckpt(saver, sess)
     print("restored.")
@@ -315,7 +319,8 @@ class ModelHelper(object):
     exit()
 
   def convert_to_reinforce_model(self):
-    """Load non-reinforce checkpoint, add initialized extra variables for reinforce, and save as new checkpoint"""
+    """Load non-reinforce checkpoint, add initialized extra variables for 
+    reinforce, and save as new checkpoint"""
     tf.logging.info("converting non-reinforce model to reinforce model..")
 
     # initialize an entire reinforce model from scratch
@@ -324,7 +329,8 @@ class ModelHelper(object):
     sess.run(tf.global_variables_initializer())
 
     # load all non-reinforce weights from checkpoint
-    saver = tf.train.Saver([v for v in tf.global_variables() if "reinforce" not in v.name and "Adagrad" not in v.name])
+    saver = tf.train.Saver([v for v in tf.global_variables() 
+        if "reinforce" not in v.name and "Adagrad" not in v.name])
     print("restoring non-reinforce variables...")
     curr_ckpt = util.load_ckpt(saver, sess)
     print("restored.")
@@ -337,15 +343,115 @@ class ModelHelper(object):
     print("saved.")
     exit()
 
+  def setup_training(self):
+    """Does setup before starting training (run_training)"""
+    train_dir = os.path.join(FLAGS.log_root, "train")
+    if not os.path.exists(train_dir): os.makedirs(train_dir)
+    if FLAGS.ac_training:
+      dqn_train_dir = os.path.join(FLAGS.log_root, "dqn", "train")
+      if not os.path.exists(dqn_train_dir): os.makedirs(dqn_train_dir)
+  
+    #replaybuffer_pcl_path = os.path.join(FLAGS.log_root, "replaybuffer.pcl")
+    #if not os.path.exists(dqn_target_train_dir): os.makedirs(dqn_target_train_dir)
+  
+    self.model.build_graph() 
+  
+    if FLAGS.convert_to_reinforce_model:
+      assert (FLAGS.rl_training or FLAGS.ac_training), 'To convert your pointer'
+          ' model to a reinforce model, run with convert_to_reinforce_model='
+          'True and either rl_training=True or ac_training=True'
+      self.convert_to_reinforce_model()
+  
+    if FLAGS.convert_to_coverage_model:
+      assert FLAGS.coverage, "To convert your non-coverage model to a coverage '
+          'model, run with convert_to_coverage_model=True and coverage=True"
+      self.convert_to_coverage_model()
+  
+    if FLAGS.restore_best_model:
+      restore_best_model()
+    saver = tf.train.Saver(max_to_keep=3) # keep 3 checkpoints at a time
+  
+    # Loads pre-trained word-embedding. By default the model learns the 
+    # embedding.
+    if FLAGS.embedding:
+      self.vocab.LoadWordEmbedding(FLAGS.embedding, FLAGS.emb_dim)
+      word_vector = self.vocab.getWordEmbedding()
+  
+    # sv = tf.train.Supervisor(logdir=train_dir,
+    #     is_chief=True,
+    #     saver=saver,
+    #     # summary_op=None,
+    #     save_summaries_secs=60, 
+    #     save_model_secs=60, )
+    #     # global_step=model.global_step,
+    #     # init_feed_dict={model.embedding_place: word_vector} 
+    #     #     if FLAGS.embedding else None)
+  
+    # self.summary_writer = self.sv.summary_writer
+    # self.sess = self.sv.prepare_or_wait_for_session(config=util.get_config())
+    self.sess = tf.Session(config=util.get_config)
+  
+    if FLAGS.ac_training:
+      tf.logging.info('DDQN building graph')
+      t1 = time.time()
+      # We create a separate graph for DDQN
+      self.dqn_graph = tf.Graph()
+      with self.dqn_graph.as_default():
+        self.dqn.build_graph() # build dqn graph
+        tf.logging.info('building current network took {} seconds'.format(
+            time.time()-t1))
+  
+        self.dqn_target.build_graph() # build dqn target graph
+        tf.logging.info('building target network took {} seconds'.format(
+            time.time()-t1))
+  
+        dqn_saver = tf.train.Saver(max_to_keep=3) # keep 3 checkpoints at a time
+        self.dqn_sv = tf.train.Supervisor(logdir=dqn_train_dir,
+            is_chief=True,
+            saver=dqn_saver,
+            summary_op=None,
+            save_summaries_secs=60, 
+            save_model_secs=60, 
+            global_step=self.dqn.global_step)
+        self.dqn_summary_writer = self.dqn_sv.summary_writer
+        self.dqn_sess = self.dqn_sv.prepare_or_wait_for_session(
+            config=util.get_config())
+  
+      ''' #### TODO: try loading a previously saved replay buffer
+      # right now this doesn't work due to running DQN on a thread
+      if os.path.exists(replaybuffer_pcl_path):
+        tf.logging.info('Loading Replay Buffer...')
+        try:
+          self.replay_buffer = pickle.load(open(replaybuffer_pcl_path, "rb"))
+          tf.logging.info('Replay Buffer loaded...')
+        except:
+          tf.logging.info('Couldn\'t load Replay Buffer file...')
+          self.replay_buffer = ReplayBuffer(self.dqn_hps)
+      else:
+        self.replay_buffer = ReplayBuffer(self.dqn_hps)
+      tf.logging.info("Building DDQN took {} seconds".format(time.time()-t1))
+      '''
+      self.replay_buffer = ReplayBuffer(self.dqn_hps)
+  
+    tf.logging.info("Preparing or waiting for session...")
+    tf.logging.info("Created session.")
+    try:
+      self.run_training() # this is an infinite loop until interrupted
+    except (KeyboardInterrupt, SystemExit):
+      tf.logging.info("Caught keyboard interrupt on worker. Stopping supervisor...")
+      sv.stop()
+      if FLAGS.ac_training:
+        dqn_sv.stop()
 
   def run_training(self):
-    """Repeatedly runs training iterations, logging loss to screen and writing summaries"""
+    """Repeatedly runs training iterations, logging loss to screen and writing
+    summaries"""
     tf.logging.info("Starting run_training")
-
+  
     if FLAGS.debug: # start the tensorflow debugger
       self.sess = tf_debug.LocalCLIDebugWrapperSession(self.sess)
       self.sess.add_tensor_filter("has_inf_or_nan", tf_debug.has_inf_or_nan)
-
+  
     self.train_step = 0
     if FLAGS.ac_training:
       # DDQN training is done asynchronously along with model training
@@ -354,85 +460,132 @@ class ModelHelper(object):
       self.thrd_dqn_training = Thread(target=self.dqn_training)
       self.thrd_dqn_training.daemon = True
       self.thrd_dqn_training.start()
-
+  
       watcher = Thread(target=self.watch_threads)
       watcher.daemon = True
       watcher.start()
+
     # starting the main thread
     tf.logging.info('Starting Seq2Seq training...')
     while True: # repeats until interrupted
       batch = self.batcher.next_batch()
       t0=time.time()
       if FLAGS.ac_training:
-        # For DDQN, we first collect the model output to calculate the reward and Q-estimates
-        # Then we fix the estimation either using our target network or using the true Q-values
-        # This process will usually take time and we are working on improving it.
-        transitions = self.model.collect_dqn_transitions(self.sess, batch, self.train_step, batch.max_art_oovs) # len(batch_size * k * max_dec_steps)
+        # For DDQN:
+        # 1) collect model output to calculate reward and Q-estimates
+        # 2）fix estimation either using target network or using true Q-values
+        # This process will usually take time. We are working on improving it.
+
+        # len(batch_size * k * max_dec_steps)
+        transitions = self.model.collect_dqn_transitions(
+            self.sess, batch, self.train_step, batch.max_art_oovs) 
         tf.logging.info('Q-values collection time: {}'.format(time.time()-t0))
-        # whenever we are working with the DDQN, we switch using DDQN graph rather than default graph
+        # whenever we are working with the DDQN, we switch using DDQN graph 
+        # rather than default graph
         with self.dqn_graph.as_default():
           batch_len = len(transitions)
-          # we use current decoder state to predict q_estimates, use_state_prime = False
-          b = ReplayBuffer.create_batch(self.dqn_hps, transitions,len(transitions), use_state_prime = False, max_art_oovs = batch.max_art_oovs)
-          # we also get the next decoder state to correct the estimation, use_state_prime = True
-          b_prime = ReplayBuffer.create_batch(self.dqn_hps, transitions,len(transitions), use_state_prime = True, max_art_oovs = batch.max_art_oovs)
+          # we use current decoder state to predict q_estimates, 
+          # use_state_prime = False
+          b = ReplayBuffer.create_batch(
+              self.dqn_hps, 
+              transitions,
+              len(transitions), 
+              use_state_prime=False, 
+              max_art_oovs=batch.max_art_oovs)
+          # we also get the next decoder state to correct the estimation, 
+          # use_state_prime = True
+          b_prime = ReplayBuffer.create_batch(
+              self.dqn_hps, 
+              transitions,
+              len(transitions), 
+              use_state_prime = True, 
+              max_art_oovs=batch.max_art_oovs)
           # use current DQN to estimate values from current decoder state
-          dqn_results = self.dqn.run_test_steps(sess=self.dqn_sess, x= b._x, return_best_action=True)
-          q_estimates = dqn_results['estimates'] # shape (len(transitions), vocab_size)
+          dqn_results = self.dqn.run_test_steps(
+              sess=self.dqn_sess, x= b._x, return_best_action=True)
+          # q_estimates shape (len(transitions), vocab_size)
+          q_estimates = dqn_results['estimates'] 
           dqn_best_action = dqn_results['best_action']
           #dqn_q_estimate_loss = dqn_results['loss']
-
+  
           # use target DQN to estimate values for the next decoder state
-          dqn_target_results = self.dqn_target.run_test_steps(self.dqn_sess, x= b_prime._x)
-          q_vals_new_t = dqn_target_results['estimates'] # shape (len(transitions), vocab_size)
-
-          # we need to expand the q_estimates to match the input batch max_art_oov
-          # we use the q_estimate of UNK token for all the OOV tokens
+          dqn_target_results = self.dqn_target.run_test_steps(
+              self.dqn_sess, x= b_prime._x)
+          # q_vals_net_t (len(transitions), vocab_size)
+          q_vals_new_t = dqn_target_results['estimates'] 
+  
+          # Expand the q_estimates to match the input batch max_art_oov
+          # Use the q_estimate of UNK token for all the OOV tokens
           q_estimates = np.concatenate([q_estimates,
-            np.reshape(q_estimates[:,0],[-1,1])*np.ones((len(transitions),batch.max_art_oovs))],axis=-1)
-          # modify Q-estimates using the result collected from current and target DQN.
-          # check algorithm 5 in the paper for more info: https://arxiv.org/pdf/1805.09461.pdf
+              np.reshape(q_estimates[:,0],[-1,1])*np.ones((len(transitions),
+                         batch.max_art_oovs))], axis=-1)
+          # modify Q-estimates using the result collected from current and 
+          # target DQN. check algorithm 5 in the paper for more info: 
+          # https://arxiv.org/pdf/1805.09461.pdf
+
           for i, tr in enumerate(transitions):
             if tr.done:
               q_estimates[i][tr.action] = tr.reward
             else:
-              q_estimates[i][tr.action] = tr.reward + FLAGS.gamma * q_vals_new_t[i][dqn_best_action[i]]
-          # use scheduled sampling to whether use true Q-values or DDQN estimation
+              q_estimates[i][tr.action] = tr.reward + \
+                  FLAGS.gamma * q_vals_new_t[i][dqn_best_action[i]]
+
+          # use scheduled sampling to whether use true Q-values or DDQN 
+          # estimation
           if FLAGS.dqn_scheduled_sampling:
-            q_estimates = self.scheduled_sampling(batch_len, FLAGS.sampling_probability, b._y_extended, q_estimates)
+            q_estimates = self.scheduled_sampling(
+                batch_len, 
+                FLAGS.sampling_probability, 
+                b._y_extended, 
+                q_estimates)
+
           if not FLAGS.calculate_true_q:
             # when we are not training DDQN based on true Q-values,
-            # we need to update Q-values in our transitions based on the q_estimates we collected from DQN current network.
+            # we need to update Q-values in our transitions based on the 
+            # q_estimates we collected from DQN current network.
             for trans, q_val in zip(transitions,q_estimates):
               trans.q_values = q_val # each have the size vocab_extended
-          q_estimates = np.reshape(q_estimates, [FLAGS.batch_size, FLAGS.k, FLAGS.max_dec_steps, -1]) # shape (batch_size, k, max_dec_steps, vocab_size_extended)
-        # Once we are done with modifying Q-values, we can use them to train the DDQN model.
-        # In this paper, we use a priority experience buffer which always selects states with higher quality
-        # to train the DDQN. The following line will add batch_size * max_dec_steps experiences to the replay buffer.
-        # As mentioned before, the DDQN training is asynchronous. Therefore, once the related queues for DDQN training
-        # are full, the DDQN will start the training.
-        self.replay_buffer.add(transitions)
-        # If dqn_pretrain flag is on, it means that we use a fixed Actor to only collect experiences for
-        # DDQN pre-training
-        if FLAGS.dqn_pretrain:
-          tf.logging.info('RUNNNING DQN PRETRAIN: Adding data to relplay buffer only...')
-          continue
-        # if not, use the q_estimation to update the loss.
-        results = self.model.run_train_steps(self.sess, batch, self.train_step, q_estimates)
-      else:
-          results = self.model.run_train_steps(self.sess, batch, self.train_step)
-      t1=time.time()
-      # get the summaries and iteration number so we can write summaries to tensorboard
-      summaries = results['summaries'] # we will write these summaries to tensorboard using summary_writer
-      self.train_step = results['global_step'] # we need this to update our running average loss
-      tf.logging.info('seconds for training step {}: {}'.format(self.train_step, t1-t0))
 
+          # shape (batch_size, k, max_dec_steps, vocab_size_extended)
+          q_estimates = np.reshape(
+              q_estimates, 
+              [FLAGS.batch_size, FLAGS.k, FLAGS.max_dec_steps, -1]) 
+
+        # Once we are done with modifying Q-values, we can use them to train 
+        # the DDQN model. In this paper, we use a priority experience buffer 
+        # which always selects states with higher quality to train the DDQN. 
+        # The following line will add batch_size * max_dec_steps experiences to
+        # the replay buffer.
+        # As mentioned before, the DDQN training is asynchronous. Therefore, 
+        # once the related queues for DDQN training are full, the DDQN will 
+        # start the training.
+        self.replay_buffer.add(transitions)
+        # If dqn_pretrain flag is on, it means that we use a fixed Actor to only
+        # collect experiences for DDQN pre-training
+        if FLAGS.dqn_pretrain:
+          tf.logging.info(
+              'RUNNNING DQN PRETRAIN: Adding data to relplay buffer only...')
+          continue
+
+        # if not, use the q_estimation to update the loss.
+        results = self.model.run_train_steps(
+            self.sess, batch, self.train_step, q_estimates)
+      else:
+        results = self.model.run_train_steps(self.sess, batch, self.train_step)
+      t1=time.time()
+
+      # get summaries and iteration number 
+      summaries = results['summaries'] 
+      self.train_step = results['global_step'] 
+      tf.logging.info('seconds for training step {}: {}'.format(
+          self.train_step, t1-t0))
+  
       printer_helper = {}
       printer_helper['pgen_loss']= results['pgen_loss']
       if FLAGS.coverage:
         printer_helper['coverage_loss'] = results['coverage_loss']
         if FLAGS.rl_training or FLAGS.ac_training:
-          printer_helper['rl_cov_total_loss']= results['reinforce_cov_total_loss']
+          printer_helper['rl_cov_total_loss'] = results['reinforce_cov_total_loss']
         else:
           printer_helper['pointer_cov_total_loss'] = results['pointer_cov_total_loss']
       if FLAGS.rl_training or FLAGS.ac_training:
@@ -444,21 +597,26 @@ class ModelHelper(object):
         printer_helper['greedy_r'] = np.mean(results['greedy_sentence_r_values'])
         printer_helper['r_diff'] = printer_helper['greedy_r'] - printer_helper['sampled_r']
       if FLAGS.ac_training:
-        printer_helper['dqn_loss'] = np.mean(self.avg_dqn_loss) if len(self.avg_dqn_loss)>0 else 0
-
+        if len(self.avg_dqn_loss)>0:
+          printer_helper['dqn_loss'] = np.mean(self.avg_dqn_loss) 
+        else:
+          printer_helper['dqn_loss'] = 0
+  
       for (k,v) in printer_helper.items():
         if not np.isfinite(v):
           raise Exception("{} is not finite. Stopping.".format(k))
         tf.logging.info('{}: {}\t'.format(k,v))
       tf.logging.info('-------------------------------------------')
-
-      self.summary_writer.add_summary(summaries, self.train_step) # write the summaries
+  
+      self.summary_writer.add_summary(summaries, self.train_step) 
       if self.train_step % 100 == 0: # flush the summary writer every so often
         self.summary_writer.flush()
-      if FLAGS.ac_training:
-        self.dqn_summary_writer.flush()
-      if self.train_step > FLAGS.max_iter: break
+        if FLAGS.ac_training:
+          self.dqn_summary_writer.flush()
 
+      if self.train_step > FLAGS.max_iter: 
+        break
+  
   def dqn_training(self):
     """ training the DDQN network."""
     try:
@@ -475,27 +633,35 @@ class ModelHelper(object):
           continue
         # Run train step for Current DQN model and collect the results
         dqn_results = self.dqn.run_train_steps(self.dqn_sess, dqn_batch)
-        # Run test step for Target DQN model and collect the results and monitor the difference in loss between the two
-        dqn_target_results = self.dqn_target.run_test_steps(self.dqn_sess, x=dqn_batch._x, y=dqn_batch._y, return_loss=True)
+        # Run test step for Target DQN model and collect the results and 
+        # monitor the difference in loss between the two
+        dqn_target_results = self.dqn_target.run_test_steps(
+            self.dqn_sess, x=dqn_batch._x, y=dqn_batch._y, return_loss=True)
         self.dqn_train_step = dqn_results['global_step']
-        self.dqn_summary_writer.add_summary(dqn_results['summaries'], self.dqn_train_step) # write the summaries
+        self.dqn_summary_writer.add_summary(
+            dqn_results['summaries'], self.dqn_train_step) # write summaries
         self.avg_dqn_loss.append(dqn_results['loss'])
         avg_dqn_target_loss.append(dqn_target_results['loss'])
         self.dqn_train_step = self.dqn_train_step + 1
         tf.logging.info('seconds for training dqn model: {}'.format(time.time()-_t))
         # UPDATING TARGET DDQN NETWORK WITH CURRENT MODEL
         with self.dqn_graph.as_default():
-          current_model_weights = self.dqn_sess.run([self.dqn.model_trainables])[0] # get weights of current model
-          self.dqn_target.run_update_weights(self.dqn_sess, self.dqn_train_step, current_model_weights) # update target model weights with current model weights
-        tf.logging.info('DQN loss at step {}: {}'.format(self.dqn_train_step, np.mean(self.avg_dqn_loss)))
-        tf.logging.info('DQN Target loss at step {}: {}'.format(self.dqn_train_step, np.mean(avg_dqn_target_loss)))
+          current_model_weights = self.dqn_sess.run(
+              [self.dqn.model_trainables])[0] # get weights of current model
+          self.dqn_target.run_update_weights(
+              self.dqn_sess, self.dqn_train_step, current_model_weights) 
+
+        tf.logging.info('DQN loss at step {}: {}'.format(
+            self.dqn_train_step, np.mean(self.avg_dqn_loss)))
+        tf.logging.info('DQN Target loss at step {}: {}'.format(
+            self.dqn_train_step, np.mean(avg_dqn_target_loss)))
         # sleeping is required if you want the keyboard interuption to work
         time.sleep(FLAGS.dqn_sleep_time)
     except (KeyboardInterrupt, SystemExit):
       tf.logging.info("Caught keyboard interrupt on worker. Stopping supervisor...")
       self.sv.stop()
       self.dqn_sv.stop()
-
+  
   def watch_threads(self):
     """Watch example queue and batch queue threads and restart if dead."""
     while True:
@@ -505,37 +671,43 @@ class ModelHelper(object):
         self.thrd_dqn_training = Thread(target=self.dqn_training)
         self.thrd_dqn_training.daemon = True
         self.thrd_dqn_training.start()
-
+  
   def run_eval(self):
-    """Repeatedly runs eval iterations, logging to screen and writing summaries. Saves the model with the best loss seen so far."""
-    self.model.build_graph() # build the graph
-    saver = tf.train.Saver(max_to_keep=3) # we will keep 3 best checkpoints at a time
+    """Repeatedly runs eval iterations, logging to screen and writing summaries.
+    Saves the model with the best loss seen so far."""
+    self.model.build_graph() 
+    saver = tf.train.Saver(max_to_keep=3) 
     sess = tf.Session(config=util.get_config())
-
+  
     if FLAGS.embedding:
-      sess.run(tf.global_variables_initializer(),feed_dict={self.model.embedding_place:self.word_vector})
-    eval_dir = os.path.join(FLAGS.log_root, "eval") # make a subdir of the root dir for eval data
-    bestmodel_save_path = os.path.join(eval_dir, 'bestmodel') # this is where checkpoints of best models are saved
+      sess.run(tf.global_variables_initializer(),
+          feed_dict={self.model.embedding_place:self.word_vector})
+    eval_dir = os.path.join(FLAGS.log_root, "eval") 
+    bestmodel_save_path = os.path.join(eval_dir, 'bestmodel') 
     self.summary_writer = tf.summary.FileWriter(eval_dir)
-
+  
     if FLAGS.ac_training:
       tf.logging.info('DDQN building graph')
       t1 = time.time()
       dqn_graph = tf.Graph()
       with dqn_graph.as_default():
         self.dqn.build_graph() # build dqn graph
-        tf.logging.info('building current network took {} seconds'.format(time.time()-t1))
+        tf.logging.info('building current network took {} seconds'.format(
+            time.time()-t1))
         self.dqn_target.build_graph() # build dqn target graph
-        tf.logging.info('building target network took {} seconds'.format(time.time()-t1))
+        tf.logging.info('building target network took {} seconds'.format(
+            time.time()-t1))
         dqn_saver = tf.train.Saver(max_to_keep=3) # keep 3 checkpoints at a time
         dqn_sess = tf.Session(config=util.get_config())
       dqn_train_step = 0
       replay_buffer = ReplayBuffer(self.dqn_hps)
 
-    running_avg_loss = 0 # the eval job keeps a smoother, running average loss to tell it when to implement early stopping
-    best_loss = self.restore_best_eval_model()  # will hold the best loss achieved so far
+    # the eval job keeps a smoother, running average loss to tell it when to 
+    # implement early stopping
+    running_avg_loss = 0 
+    best_loss = self.restore_best_eval_model()  
     train_step = 0
-
+  
     while True:
       _ = util.load_ckpt(saver, sess) # load a new checkpoint
       if FLAGS.ac_training:
@@ -543,59 +715,91 @@ class ModelHelper(object):
       processed_batch = 0
       avg_losses = []
       # evaluate for 100 * batch_size before comparing the loss
-      # we do this due to memory constraint, best to run eval on different machines with large batch size
+      # we do this due to memory constraint, best to run eval on different 
+      # machines with large batch size
       while processed_batch < 100*FLAGS.batch_size:
         processed_batch += FLAGS.batch_size
         batch = self.batcher.next_batch() # get the next batch
         if FLAGS.ac_training:
           t0 = time.time()
-          transitions = self.model.collect_dqn_transitions(sess, batch, train_step, batch.max_art_oovs) # len(batch_size * k * max_dec_steps)
+          transitions = self.model.collect_dqn_transitions(
+              sess, batch, train_step, batch.max_art_oovs) 
           tf.logging.info('Q values collection time: {}'.format(time.time()-t0))
           with dqn_graph.as_default():
             # if using true Q-value to train DQN network,
-            # we do this as the pre-training for the DQN network to get better estimates
+            # we do this as the pre-training for the DQN network to get better
+            # estimates
             batch_len = len(transitions)
-            b = ReplayBuffer.create_batch(self.dqn_hps, transitions,len(transitions), use_state_prime = True, max_art_oovs = batch.max_art_oovs)
-            b_prime = ReplayBuffer.create_batch(self.dqn_hps, transitions,len(transitions), use_state_prime = True, max_art_oovs = batch.max_art_oovs)
-            dqn_results = self.dqn.run_test_steps(sess=dqn_sess, x= b._x, return_best_action=True)
-            q_estimates = dqn_results['estimates'] # shape (len(transitions), vocab_size)
+            b = ReplayBuffer.create_batch(
+                self.dqn_hps, 
+                transitions,
+                len(transitions), 
+                use_state_prime=True, 
+                max_art_oovs=batch.max_art_oovs)
+            b_prime = ReplayBuffer.create_batch(
+                self.dqn_hps, 
+                transitions,
+                len(transitions), 
+                use_state_prime=True, 
+                max_art_oovs=batch.max_art_oovs)
+            dqn_results = self.dqn.run_test_steps(
+                sess=dqn_sess, x= b._x, return_best_action=True)
+            # q_estimates shape (len(transitions), vocab_size)
+            q_estimates = dqn_results['estimates'] 
             dqn_best_action = dqn_results['best_action']
-
+  
             tf.logging.info('running test step on dqn_target')
-            dqn_target_results = self.dqn_target.run_test_steps(dqn_sess, x= b_prime._x)
-            q_vals_new_t = dqn_target_results['estimates'] # shape (len(transitions), vocab_size)
-
-            # we need to expand the q_estimates to match the input batch max_art_oov
-            q_estimates = np.concatenate([q_estimates,np.zeros((len(transitions),batch.max_art_oovs))],axis=-1)
-
+            dqn_target_results = self.dqn_target.run_test_steps(
+                dqn_sess, x= b_prime._x)
+            # q_vals_new_t shape (len(transitions), vocab_size)
+            q_vals_new_t = dqn_target_results['estimates'] 
+  
+            # we need to expand the q_estimates to match the input 
+            # batch max_art_oov
+            q_estimates = np.concatenate(
+                [q_estimates, np.zeros((len(transitions),batch.max_art_oovs))],
+                axis=-1)
+  
             tf.logging.info('fixing the action q-estimates')
             for i, tr in enumerate(transitions):
               if tr.done:
                 q_estimates[i][tr.action] = tr.reward
               else:
-                q_estimates[i][tr.action] = tr.reward + FLAGS.gamma * q_vals_new_t[i][dqn_best_action[i]]
+                q_estimates[i][tr.action] = tr.reward + \ 
+                    FLAGS.gamma * q_vals_new_t[i][dqn_best_action[i]]
             if FLAGS.dqn_scheduled_sampling:
               tf.logging.info('scheduled sampling on q-estimates')
-              q_estimates = self.scheduled_sampling(batch_len, FLAGS.sampling_probability, b._y_extended, q_estimates)
+              q_estimates = self.scheduled_sampling(
+                  batch_len, 
+                  FLAGS.sampling_probability, 
+                  b._y_extended, 
+                  q_estimates)
             if not FLAGS.calculate_true_q:
               # when we are not training DQN based on true Q-values
-              # we need to update Q-values in our transitions based on this q_estimates we collected from DQN current network.
+              # we need to update Q-values in our transitions based on this 
+              # q_estimates we collected from DQN current network.
               for trans, q_val in zip(transitions,q_estimates):
                 trans.q_values = q_val # each have the size vocab_extended
-            q_estimates = np.reshape(q_estimates, [FLAGS.batch_size, FLAGS.k, FLAGS.max_dec_steps, -1]) # shape (batch_size, k, max_dec_steps, vocab_size_extended)
+            # q_estimates (batch_size, k, max_dec_steps, vocab_size_extended)
+            q_estimates = np.reshape(
+                q_estimates, 
+                [FLAGS.batch_size, FLAGS.k, FLAGS.max_dec_steps, -1]) 
+
           tf.logging.info('run eval step on seq2seq model.')
           t0=time.time()
-          results = self.model.run_eval_step(sess, batch, train_step, q_estimates)
+          results = self.model.run_eval_step(
+              sess, batch, train_step, q_estimates)
           t1=time.time()
         else:
           tf.logging.info('run eval step on seq2seq model.')
           t0=time.time()
           results = self.model.run_eval_step(sess, batch, train_step)
           t1=time.time()
-
+  
         tf.logging.info('experiment: {}'.format(FLAGS.exp_name))
-        tf.logging.info('processed_batch: {}, seconds for batch: {}'.format(processed_batch, t1-t0))
-
+        tf.logging.info('processed_batch: {}, seconds for batch: {}'.format(
+            processed_batch, t1-t0))
+  
         printer_helper = {}
         loss = printer_helper['pgen_loss']= results['pgen_loss']
         if FLAGS.coverage:
@@ -612,61 +816,75 @@ class ModelHelper(object):
           printer_helper['greedy_r'] = np.mean(results['greedy_sentence_r_values'])
           printer_helper['r_diff'] = printer_helper['greedy_r'] - printer_helper['sampled_r']
         if FLAGS.ac_training:
-          printer_helper['dqn_loss'] = np.mean(self.avg_dqn_loss) if len(self.avg_dqn_loss) > 0 else 0
-
+          if len(self.avg_dqn_loss) > 0:
+            printer_helper['dqn_loss'] = np.mean(self.avg_dqn_loss)
+          else: 
+            printer_helper['dqn_loss'] = 0
+  
         for (k,v) in printer_helper.items():
           if not np.isfinite(v):
             raise Exception("{} is not finite. Stopping.".format(k))
           tf.logging.info('{}: {}\t'.format(k,v))
-
+  
         # add summaries
         summaries = results['summaries']
         train_step = results['global_step']
         self.summary_writer.add_summary(summaries, train_step)
-
+  
         # calculate running avg loss
-        avg_losses.append(self.calc_running_avg_loss(np.asscalar(loss), running_avg_loss, train_step))
+        avg_losses.append(self.calc_running_avg_loss(np.asscalar(loss), 
+                          running_avg_loss, train_step))
         tf.logging.info('-------------------------------------------')
-
+  
       running_avg_loss = np.mean(avg_losses)
       tf.logging.info('==========================================')
-      tf.logging.info('best_loss: {}\trunning_avg_loss: {}\t'.format(best_loss, running_avg_loss))
+      tf.logging.info('best_loss: {}\trunning_avg_loss: {}\t'.format(
+          best_loss, running_avg_loss))
       tf.logging.info('==========================================')
-
-      # If running_avg_loss is best so far, save this checkpoint (early stopping).
-      # These checkpoints will appear as bestmodel-<iteration_number> in the eval dir
+  
+      # If running_avg_loss is best so far, save this checkpoint (early 
+      # stopping). These checkpoints will appear as 
+      # bestmodel-<iteration_number> in the eval dir
       if best_loss is None or running_avg_loss < best_loss:
-        tf.logging.info('Found new best model with %.3f running_avg_loss. Saving to %s', running_avg_loss, bestmodel_save_path)
-        saver.save(sess, bestmodel_save_path, global_step=train_step, latest_filename='checkpoint_best')
+        tf.logging.info('Found new best model with %.3f running_avg_loss. '
+            'Saving to %s', running_avg_loss, bestmodel_save_path)
+        saver.save(
+            sess, 
+            bestmodel_save_path, 
+            global_step=train_step, 
+            latest_filename='checkpoint_best')
         best_loss = running_avg_loss
-
+  
       # flush the summary writer every so often
       if train_step % 100 == 0:
         self.summary_writer.flush()
       #time.sleep(600) # run eval every 10 minute
-
+  
   # Scheduled sampling used for either selecting true Q-estimates or the 
   # DDQN estimation based on 
   # https://www.tensorflow.org/api_docs/python/tf/contrib/seq2seq/ScheduledEmbeddingTrainingHelper
   def scheduled_sampling(self, batch_size, sampling_probability, true, estimate):
     with variable_scope.variable_scope("ScheduledEmbedding"):
       # Return -1s where we do not sample, and sample_ids elsewhere
-      select_sampler = bernoulli.Bernoulli(probs=sampling_probability, dtype=tf.bool)
+      select_sampler = bernoulli.Bernoulli(
+          probs=sampling_probability, dtype=tf.bool)
       select_sample = select_sampler.sample(sample_shape=batch_size)
       sample_ids = array_ops.where(
-                  select_sample,
-                  tf.range(batch_size),
-                  gen_array_ops.fill([batch_size], -1))
+          select_sample,
+          tf.range(batch_size),
+          gen_array_ops.fill([batch_size], -1))
       where_sampling = math_ops.cast(
           array_ops.where(sample_ids > -1), tf.int32)
       where_not_sampling = math_ops.cast(
           array_ops.where(sample_ids <= -1), tf.int32)
       _estimate = array_ops.gather_nd(estimate, where_sampling)
       _true = array_ops.gather_nd(true, where_not_sampling)
-
+  
       base_shape = array_ops.shape(true)
-      result1 = array_ops.scatter_nd(indices=where_sampling, updates=_estimate, shape=base_shape)
-      result2 = array_ops.scatter_nd(indices=where_not_sampling, updates=_true, shape=base_shape)
+      result1 = array_ops.scatter_nd(
+          indices=where_sampling, updates=_estimate, shape=base_shape)
+      result2 = array_ops.scatter_nd(
+          indices=where_not_sampling, updates=_true, shape=base_shape)
       result = result1 + result2
       return result1 + result2
 
@@ -778,106 +996,7 @@ def dqn_hparams():
   return dqn_hps
 
 
-def setup_training(model):
-  """Does setup before starting training (run_training)"""
-  train_dir = os.path.join(FLAGS.log_root, "train")
-  if not os.path.exists(train_dir): os.makedirs(train_dir)
-  if FLAGS.ac_training:
-    dqn_train_dir = os.path.join(FLAGS.log_root, "dqn", "train")
-    if not os.path.exists(dqn_train_dir): os.makedirs(dqn_train_dir)
-
-  #replaybuffer_pcl_path = os.path.join(FLAGS.log_root, "replaybuffer.pcl")
-  #if not os.path.exists(dqn_target_train_dir): os.makedirs(dqn_target_train_dir)
-
-  model.build_graph() # build the graph
-
-  if FLAGS.convert_to_reinforce_model:
-    assert (FLAGS.rl_training or FLAGS.ac_training), 'To convert your pointer '
-        'model to a reinforce model, run with convert_to_reinforce_model=True '
-        'and either rl_training=True or ac_training=True'
-    self.convert_to_reinforce_model()
-
-  if FLAGS.convert_to_coverage_model:
-    assert FLAGS.coverage, "To convert your non-coverage model to a coverage '
-        'model, run with convert_to_coverage_model=True and coverage=True"
-    self.convert_to_coverage_model()
-  if FLAGS.restore_best_model:
-    self.restore_best_model()
-  saver = tf.train.Saver(max_to_keep=3) # keep 3 checkpoints at a time
-
-  # Loads pre-trained word-embedding. By default the model learns the embedding.
-  if FLAGS.embedding:
-    self.vocab.LoadWordEmbedding(FLAGS.embedding, FLAGS.emb_dim)
-    word_vector = self.vocab.getWordEmbedding()
-
-  sv = tf.train.Supervisor(logdir=train_dir,
-      is_chief=True,
-      saver=saver,
-      summary_op=None,
-      save_summaries_secs=60, 
-      save_model_secs=60, 
-      global_step=model.global_step,
-      init_feed_dict={model.embedding_place: word_vector} 
-          if FLAGS.embedding else None)
-
-  self.summary_writer = self.sv.summary_writer
-  self.sess = self.sv.prepare_or_wait_for_session(config=util.get_config())
-
-  if FLAGS.ac_training:
-    tf.logging.info('DDQN building graph')
-    t1 = time.time()
-    # We create a separate graph for DDQN
-    self.dqn_graph = tf.Graph()
-    with self.dqn_graph.as_default():
-      self.dqn.build_graph() # build dqn graph
-      tf.logging.info('building current network took {} seconds'.format(
-          time.time()-t1))
-
-      self.dqn_target.build_graph() # build dqn target graph
-      tf.logging.info('building target network took {} seconds'.format(
-          time.time()-t1))
-
-      dqn_saver = tf.train.Saver(max_to_keep=3) # keep 3 checkpoints at a time
-      self.dqn_sv = tf.train.Supervisor(logdir=dqn_train_dir,
-          is_chief=True,
-          saver=dqn_saver,
-          summary_op=None,
-          save_summaries_secs=60, 
-          save_model_secs=60, 
-          global_step=self.dqn.global_step)
-      self.dqn_summary_writer = self.dqn_sv.summary_writer
-      self.dqn_sess = self.dqn_sv.prepare_or_wait_for_session(
-          config=util.get_config())
-
-    ''' #### TODO: try loading a previously saved replay buffer
-    # right now this doesn't work due to running DQN on a thread
-    if os.path.exists(replaybuffer_pcl_path):
-      tf.logging.info('Loading Replay Buffer...')
-      try:
-        self.replay_buffer = pickle.load(open(replaybuffer_pcl_path, "rb"))
-        tf.logging.info('Replay Buffer loaded...')
-      except:
-        tf.logging.info('Couldn\'t load Replay Buffer file...')
-        self.replay_buffer = ReplayBuffer(self.dqn_hps)
-    else:
-      self.replay_buffer = ReplayBuffer(self.dqn_hps)
-    tf.logging.info("Building DDQN took {} seconds".format(time.time()-t1))
-    '''
-    self.replay_buffer = ReplayBuffer(self.dqn_hps)
-
-  tf.logging.info("Preparing or waiting for session...")
-  tf.logging.info("Created session.")
-  try:
-    run_training() # this is an infinite loop until interrupted
-  except (KeyboardInterrupt, SystemExit):
-    tf.logging.info("Caught keyboard interrupt on worker. Stopping supervisor...")
-    sv.stop()
-    if FLAGS.ac_training:
-      dqn_sv.stop()
-
-
 def main(unused_argv):
-  # prints a message if you've entered flags incorrectly
   if len(unused_argv) != 1: 
     raise Exception("Problem with flags: %s" % unused_argv)
 
@@ -900,39 +1019,44 @@ def main(unused_argv):
       decode_after=FLAGS.decode_after)
 
 
-  if self.hps.mode == 'train':
+  if hps.mode == 'train':
     print("creating model...")
     model = SummarizationModel(hps, vocab)
+    helper = ModelHelper(model, vocab)
     if FLAGS.ac_training:
       # current DQN with paramters \Psi
-      dqn = DQN(self.dqn_hps,'current')
+      helper.dqn = DQN(self.dqn_hps,'current')
       # target DQN with paramters \Psi^{\prime}
-      dqn_target = DQN(self.dqn_hps,'target')
-    setup_training()
+      helper.dqn_target = DQN(self.dqn_hps,'target')
+    helper.run_training()
 
-  elif self.hps.mode == 'eval':
-    model = SummarizationModel(self.hps, self.vocab)
+  elif hps.mode == 'eval':
+    model = SummarizationModel(hps, vocab)
+    helper = ModelHelper(model, vocab)
     if FLAGS.ac_training:
-      dqn = DQN(self.dqn_hps,'current')
-      dqn_target = DQN(self.dqn_hps,'target')
-    run_eval()
+      helper.dqn = DQN(dqn_hps,'current')
+      helper.dqn_target = DQN(dqn_hps,'target')
+    helper.run_eval()
 
-  elif self.hps.mode == 'decode':
+  elif hps.mode == 'decode':
     # This will be the hyperparameters for the decoder model
-    decode_model_hps = self.hps  
+    decode_model_hps = hps  
     # The model is configured with max_dec_steps=1 because we only ever run one
     # step of the decoder at a time (to do beam search). Note that the batcher 
     # is initialized with max_dec_steps equal to e.g. 100 because the batches 
     # need to contain the full summaries
-    decode_model_hps = self.hps._replace(max_dec_steps=1) 
+    decode_model_hps = hps._replace(max_dec_steps=1) 
     model = SummarizationModel(decode_model_hps, self.vocab)
     if FLAGS.ac_training:
-      # We need our target DDQN network for collecting Q-estimation at each decoder step.
+      # We need our target DDQN network for collecting Q-estimation at each 
+      # decoder step.
       dqn_target = DQN(self.dqn_hps,'target')
     else:
       dqn_target = None
-    decoder = BeamSearchDecoder(model, self.batcher, self.vocab, dqn = dqn_target)
-    decoder.decode() # decode indefinitely (unless single_pass=True, in which case deocde the dataset exactly once)
+    decoder = BeamSearchDecoder(model, self.batcher, self.vocab, dqn=dqn_target)
+    # decode indefinitely (unless single_pass=True, in which case deocde the 
+    # dataset exactly once)
+    decoder.decode() 
   else:
     raise ValueError("The 'mode' flag must be one of train/eval/decode")
 
