@@ -696,12 +696,18 @@ class SummarizationModel(BaseModel):
       if self._hps.fixed_sampling_probability:
         feed_dict[self._sampling_probability] = self._hps.sampling_probability
       else:
-        feed_dict[self._sampling_probability] = min(step * self._hps.sampling_probability, 1.) # linear decay function
-      ranges = [np.exp(float(step) * self._hps.alpha), np.finfo(np.float64).max] # to avoid overflow
-      feed_dict[self._alpha] = np.log(ranges[np.argmin(ranges)]) # linear decay function
+        feed_dict[self._sampling_probability] = min(
+            step * self._hps.sampling_probability, 1.) # linear decay function
+      ranges = [
+          np.exp(float(step) * self._hps.alpha), 
+          np.finfo(np.float64).max
+          ] # to avoid overflow
+      # linear decay function
+      feed_dict[self._alpha] = np.log(ranges[np.argmin(ranges)]) 
     if self._hps.ac_training:
       self.q_estimates = q_estimates
       feed_dict[self._q_estimates]= self.q_estimates
+
     to_return = {
         'train_op': self._shared_train_op,
         'summaries': self._summaries,
