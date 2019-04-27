@@ -3,7 +3,6 @@
 
 import time
 import random
-from random import shuffle
 from threading import Thread
 try:
   import queue
@@ -42,7 +41,7 @@ class Example(object):
 
     # Process the article
     article_words = article.split()
-    if len(article_words) > hps.max_enc_steps:
+    if len(article_wor$ds) > hps.max_enc_steps:
       article_words = article_words[:hps.max_enc_steps]
     self.enc_len = len(article_words) 
     self.enc_input = [vocab.word2id(w) for w in article_words] 
@@ -71,6 +70,7 @@ class Example(object):
           abstract_words, vocab, self.article_oovs)
 
       # Overwrite decoder target sequence so it uses the temp article OOV ids
+      # TODO: figure out why dec_input is not changed? Maybe some test?
       _, self.target = self.get_dec_inp_targ_seqs(
           abs_ids_extend_vocab, hps.max_dec_steps, start_decoding, stop_decoding)
 
@@ -107,14 +107,12 @@ class Example(object):
     assert len(inp) == len(target)
     return inp, target
 
-
   def pad_decoder_inp_targ(self, max_len, pad_id):
     """Pad decoder input and target sequences with pad_id up to max_len."""
     while len(self.dec_input) < max_len:
       self.dec_input.append(pad_id)
     while len(self.target) < max_len:
       self.target.append(pad_id)
-
 
   def pad_encoder_input(self, max_len, pad_id):
     """Pad the encoder input sequence with pad_id up to max_len."""
@@ -133,44 +131,27 @@ class Batch(object):
     """Turns the example_list into a Batch object.
 
     Args:
-       example_list: List of Example objects
-       hps: hyperparameters
-       vocab: Vocabulary object
+      example_list: List of Example objects
+      hps: hyperparameters
+      vocab: Vocabulary object
     """
-    self.pad_id = vocab.word2id(data.PAD_TOKEN) # id of the PAD token used to pad sequences
-    self.init_encoder_seq(example_list, hps) # initialize the input to the encoder
-    self.init_decoder_seq(example_list, hps) # initialize the input and targets for the decoder
-    self.store_orig_strings(example_list) # store the original strings
+    self.pad_id = vocab.word2id(data.PAD_TOKEN) 
+    self.init_encoder_seq(example_list, hps) 
+    self.init_decoder_seq(example_list, hps) 
+    self.store_orig_strings(example_list) 
 
   def init_encoder_seq(self, example_list, hps):
-    """Initializes the following:
-        self.enc_batch:
-          numpy array of shape (batch_size, <=max_enc_steps) containing integer ids (all OOVs represented by UNK id), padded to length of longest sequence in the batch
-        self.enc_lens:
-          numpy array of shape (batch_size) containing integers. The (truncated) length of each encoder input sequence (pre-padding).
-        self.enc_padding_mask:
-          numpy array of shape (batch_size, <=max_enc_steps), containing 1s and 0s. 1s correspond to real tokens in enc_batch and target_batch; 0s correspond to padding.
-
-      If hps.pointer_gen, additionally initializes the following:
-        self.max_art_oovs:
-          maximum number of in-article OOVs in the batch
-        self.art_oovs:
-          list of list of in-article OOVs (strings), for each example in the batch
-        self.enc_batch_extend_vocab:
-          Same as self.enc_batch, but in-article OOVs are represented by their temporary article OOV number.
+    """Initializes the encoder sequence
     """
-    # Determine the maximum length of the encoder input sequence in this batch
     max_enc_seq_len = max([ex.enc_len for ex in example_list])
-
-    # Pad the encoder input sequences up to the length of the longest sequence
     for ex in example_list:
       ex.pad_encoder_input(max_enc_seq_len, self.pad_id)
 
     # Initialize the numpy arrays
-    # Note: our enc_batch can have different length (second dimension) for each batch because we use dynamic_rnn for the encoder.
     self.enc_batch = np.zeros((hps.batch_size, max_enc_seq_len), dtype=np.int32)
     self.enc_lens = np.zeros((hps.batch_size), dtype=np.int32)
-    self.enc_padding_mask = np.zeros((hps.batch_size, max_enc_seq_len), dtype=np.float32)
+    self.enc_padding_mask = np.zeros(
+        (hps.batch_size, max_enc_seq_len), dtype=np.float32)
 
     # Fill in the numpy arrays
     for i, ex in enumerate(example_list):
@@ -186,28 +167,25 @@ class Batch(object):
       # Store the in-article OOVs themselves
       self.art_oovs = [ex.article_oovs for ex in example_list]
       # Store the version of the enc_batch that uses the article OOV ids
-      self.enc_batch_extend_vocab = np.zeros((hps.batch_size, max_enc_seq_len), dtype=np.int32)
+      self.enc_batch_extend_vocab = np.zeros(
+          (hps.batch_size, max_enc_seq_len), dtype=np.int32)
       for i, ex in enumerate(example_list):
         self.enc_batch_extend_vocab[i, :] = ex.enc_input_extend_vocab[:]
 
   def init_decoder_seq(self, example_list, hps):
-    """Initializes the following:
-        self.dec_batch:
-          numpy array of shape (batch_size, max_dec_steps), containing integer ids as input for the decoder, padded to max_dec_steps length.
-        self.target_batch:
-          numpy array of shape (batch_size, max_dec_steps), containing integer ids for the target sequence, padded to max_dec_steps length.
-        self.dec_padding_mask:
-          numpy array of shape (batch_size, max_dec_steps), containing 1s and 0s. 1s correspond to real tokens in dec_batch and target_batch; 0s correspond to padding.
-        """
+    """Initializes the decoder sequence
+    """
     # Pad the inputs and targets
     for ex in example_list:
       ex.pad_decoder_inp_targ(hps.max_dec_steps, self.pad_id)
 
-    # Initialize the numpy arrays.
-    # Note: our decoder inputs and targets must be the same length for each batch (second dimension = max_dec_steps) because we do not use a dynamic_rnn for decoding. However I believe this is possible, or will soon be possible, with Tensorflow 1.0, in which case it may be best to upgrade to that.
-    self.dec_batch = np.zeros((hps.batch_size, hps.max_dec_steps), dtype=np.int32)
-    self.target_batch = np.zeros((hps.batch_size, hps.max_dec_steps), dtype=np.int32)
-    self.dec_padding_mask = np.zeros((hps.batch_size, hps.max_dec_steps), dtype=np.float32)
+    # TODO: dynamic_rnn for decoding
+    self.dec_batch = np.zeros(
+        (hps.batch_size, hps.max_dec_steps), dtype=np.int32)
+    self.target_batch = np.zeros(
+        (hps.batch_size, hps.max_dec_steps), dtype=np.int32)
+    self.dec_padding_mask = np.zeros(
+        (hps.batch_size, hps.max_dec_steps), dtype=np.float32)
 
     # Fill in the numpy arrays
     for i, ex in enumerate(example_list):
@@ -218,9 +196,10 @@ class Batch(object):
 
   def store_orig_strings(self, example_list):
     """Store the original article and abstract strings in the Batch object"""
-    self.original_articles = [ex.original_article for ex in example_list] # list of lists
-    self.original_abstracts = [ex.original_abstract for ex in example_list] # list of lists
-    self.original_abstracts_sents = [ex.original_abstract_sents for ex in example_list] # list of list of lists
+    self.original_articles = [ex.original_article for ex in example_list] 
+    self.original_abstracts = [ex.original_abstract for ex in example_list] 
+    self.original_abstracts_sents = [ex.original_abstract_sents 
+        for ex in example_list] 
 
 
 class Batcher(object):
@@ -283,14 +262,18 @@ class Batcher(object):
   def next_batch(self):
     """Return a Batch from the batch queue.
 
-    If mode='decode' then each batch contains a single example repeated beam_size-many times; this is necessary for beam search.
+    If mode='decode' then each batch contains a single example repeated 
+    beam_size-many times; this is necessary for beam search.
 
     Returns:
-      batch: a Batch object, or None if we're in single_pass mode and we've exhausted the dataset.
+      batch: a Batch object, or None if we're in single_pass mode and we've 
+        exhausted the dataset.
     """
     # If the batch queue is empty, print a warning
     if self._batch_queue.qsize() == 0:
-      tf.logging.warning('Bucket input queue is empty when calling next_batch. Bucket queue size: %i, Input queue size: %i', self._batch_queue.qsize(), self._example_queue.qsize())
+      tf.logging.warning('Bucket input queue is empty when calling next_batch. '
+          'Bucket queue size: %i, Input queue size: %i',
+          self._batch_queue.qsize(), self._example_queue.qsize())
       if self._single_pass and self._finished_reading:
         tf.logging.info("Finished reading dataset in single_pass mode.")
         return None
@@ -347,8 +330,8 @@ class Batcher(object):
         for i in range(0, len(inputs), self._hps.batch_size):
           batches.append(inputs[i:i + self._hps.batch_size])
         if not self._single_pass:
-          shuffle(batches)
-        for b in batches:  # each b is a list of Example objects
+          random.shuffle(batches)
+        for b in batches:  
           self._batch_queue.put(Batch(b, self._hps, self._vocab))
 
       else: # beam search decode mode
@@ -379,17 +362,22 @@ class Batcher(object):
     """Generates article and abstract text from tf.Example.
 
     Args:
-      example_generator: a generator of tf.Examples from file. See data.example_generator"""
+      example_generator: a generator of tf.Examples from file. See 
+        data_utils.example_generator
+    """
     cnt = 0
     while True:
       e = example_generator.next() # e is a tf.Example
       try:
-        article_text = e.features.feature['article'].bytes_list.value[0] # the article text was saved under the key 'article' in the data files
-        abstract_text = e.features.feature['abstract'].bytes_list.value[0] # the abstract text was saved under the key 'abstract' in the data files
+        # the article text was saved under the key 'article' in the data files
+        article_text = e.features.feature['article'].bytes_list.value[0] 
+        # the abstract text was saved under the key 'abstract' in the data files
+        abstract_text = e.features.feature['abstract'].bytes_list.value[0] 
       except ValueError:
         tf.logging.error('Failed to get article or abstract from example')
         continue
-      if len(article_text)==0: # See https://github.com/abisee/pointer-generator/issues/1
+      if len(article_text)==0: 
+        # See https://github.com/abisee/pointer-generator/issues/1
         tf.logging.warning('Found an example with empty article text. Skipping it.')
       else:
         if self._single_pass and cnt < self._decode_after: #skip already decoded docs

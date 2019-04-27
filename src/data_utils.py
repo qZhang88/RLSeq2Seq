@@ -185,18 +185,21 @@ def example_generator(data_path, single_pass):
       break
 
 
+# TODO: add max oov number
 def article2ids(article_words, vocab):
-  """Map the article words to their ids. Also return a list of OOVs in the article.
+  """Map the article words to their ids. Also return a list of OOVs in the 
+  article.
 
   Args:
     article_words: list of words (strings)
     vocab: Vocabulary object
 
   Returns:
-    ids:
-      A list of word ids (integers); OOVs are represented by their temporary article OOV number. If the vocabulary size is 50k and the article has 3 OOVs, then these temporary OOV numbers will be 50000, 50001, 50002.
-    oovs:
-      A list of the OOV words in the article (strings), in the order corresponding to their temporary article OOV numbers."""
+    ids: A list of word ids (integers); OOVs are represented by their temporary 
+      article OOV number. If the vocabulary size is 50k and the article has 3 
+      OOVs, then these temporary OOV numbers will be 50000, 50001, 50002.
+    oovs: A list of the OOV words in the article (strings), in the order 
+      corresponding to their temporary article OOV numbers."""
   ids = []
   oovs = []
   unk_id = vocab.word2id(UNKNOWN_TOKEN)
@@ -205,30 +208,35 @@ def article2ids(article_words, vocab):
     if i == unk_id: # If w is OOV
       if w not in oovs: # Add to list of OOVs
         oovs.append(w)
-      oov_num = oovs.index(w) # This is 0 for the first article OOV, 1 for the second article OOV...
-      ids.append(vocab.size() + oov_num) # This is e.g. 50000 for the first article OOV, 50001 for the second...
+      oov_num = oovs.index(w) # 0 for the first OOV, 1 for the second ...
+      ids.append(vocab.size() + oov_num) # e.g. 50000 for the first OOV, ...
     else:
       ids.append(i)
   return ids, oovs
 
 
 def abstract2ids(abstract_words, vocab, article_oovs):
-  """Map the abstract words to their ids. In-article OOVs are mapped to their temporary OOV numbers.
+  """Map the abstract words to their ids. In-article OOVs are mapped to their 
+  temporary OOV numbers.
 
   Args:
     abstract_words: list of words (strings)
     vocab: Vocabulary object
-    article_oovs: list of in-article OOV words (strings), in the order corresponding to their temporary article OOV numbers
+    article_oovs: list of in-article OOV words (strings), in the order 
+      corresponding to their temporary article OOV numbers
 
   Returns:
-    ids: List of ids (integers). In-article OOV words are mapped to their temporary OOV numbers. Out-of-article OOV words are mapped to the UNK token id."""
+    ids: List of ids (integers). In-article OOV words are mapped to their 
+      temporary OOV numbers. Out-of-article OOV words are mapped to the UNK 
+      token id.
+  """
   ids = []
   unk_id = vocab.word2id(UNKNOWN_TOKEN)
   for w in abstract_words:
     i = vocab.word2id(w)
     if i == unk_id: # If w is an OOV word
       if w in article_oovs: # If w is an in-article OOV
-        vocab_idx = vocab.size() + article_oovs.index(w) # Map to its temporary article OOV number
+        vocab_idx = vocab.size() + article_oovs.index(w) 
         ids.append(vocab_idx)
       else: # If w is an out-of-article OOV
         ids.append(unk_id) # Map to the UNK token id
