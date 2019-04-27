@@ -1,19 +1,3 @@
-# Copyright 2016 The TensorFlow Authors. All Rights Reserved.
-# Modifications Copyright 2017 Abigail See
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-# ==============================================================================
-
 """This file contains code to read the train/eval/test data from file and 
 process it, and read the vocab data from file and process it"""
 
@@ -168,21 +152,25 @@ def example_generator(data_path, single_pass):
     the tokenized article text and summary.
 
   Args:
-    data_path:
-      Path to tf.Example data files. Can include wildcards, e.g. if you have several training data chunk files train_001.bin, train_002.bin, etc, then pass data_path=train_* to access them all.
-    single_pass:
-      Boolean. If True, go through the dataset exactly once, generating examples in the order they appear, then return. Otherwise, generate random examples indefinitely.
+    data_path: Path to tf.Example data files. Can include wildcards, e.g. if 
+      you have several training data chunk files train_001.bin, train_002.bin,
+      etc, then pass data_path=train_* to access them all.
+    single_pass: Boolean. If True, go through the dataset exactly once, 
+      generating examples in the order they appear, then return. Otherwise, 
+      generate random examples indefinitely.
 
   Yields:
     Deserialized tf.Example.
   """
   while True:
-    filelist = glob.glob(data_path) # get the list of datafiles
-    assert filelist, ('Error: Empty filelist at %s' % data_path) # check filelist isn't empty
+    filelist = glob.glob(data_path) 
+    assert filelist, ('Error: Empty filelist at %s' % data_path) 
+
     if single_pass:
       filelist = sorted(filelist)
     else:
       random.shuffle(filelist)
+
     for f in filelist:
       reader = open(f, 'rb')
       while True:
@@ -191,6 +179,7 @@ def example_generator(data_path, single_pass):
         str_len = struct.unpack('q', len_bytes)[0]
         example_str = struct.unpack('%ds' % str_len, reader.read(str_len))[0]
         yield example_pb2.Example.FromString(example_str)
+
     if single_pass:
       print("example_generator completed reading all datafiles. No more data.")
       break
