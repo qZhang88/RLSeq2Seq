@@ -1,26 +1,27 @@
 """ Model helper to build, train, eval, and test model"""
 
 
-import time
 import os
-import tensorflow as tf
-from collections import namedtuple
-from data import Vocab
-from batcher import Batcher
-from model import SummarizationModel
-from decode import BeamSearchDecoder
-import util as util
-import numpy as np
+import time
 from glob import glob
-from tensorflow.python import debug as tf_debug
-from replay_buffer import ReplayBuffer
-from dqn import DQN
+from collections import namedtuple
 from threading import Thread
+
+import numpy as np
+import tensorflow as tf
+from tensorflow.python import debug as tf_debug
 from tensorflow.python.ops import variable_scope
 from tensorflow.python.ops import array_ops
 from tensorflow.python.ops import gen_array_ops
 from tensorflow.python.ops import math_ops
 from tensorflow.python.ops.distributions import bernoulli
+
+import util 
+from dqn import DQN
+from decode import BeamSearchDecoder
+from batcher import Batcher
+from data_utils import Vocab
+from replay_buffer import ReplayBuffer
 
 
 FLAGS = tf.app.flags.FLAGS
@@ -154,7 +155,7 @@ class ModelHelper(object):
     print("saved.")
     exit()
 
-  def run_train(self, batcher):
+  def run_training(self, batcher):
     """Does setup before starting training (run_training)"""
     train_dir = os.path.join(FLAGS.log_root, "train")
     if not os.path.exists(train_dir): os.makedirs(train_dir)
@@ -168,14 +169,14 @@ class ModelHelper(object):
     self.model.build_graph() 
   
     if FLAGS.convert_to_reinforce_model:
-      assert (FLAGS.rl_training or FLAGS.ac_training), 'To convert your pointer'
+      assert (FLAGS.rl_training or FLAGS.ac_training), ('To convert your pointer'
           ' model to a reinforce model, run with convert_to_reinforce_model='
-          'True and either rl_training=True or ac_training=True'
+          'True and either rl_training=True or ac_training=True')
       self.convert_to_reinforce_model()
   
     if FLAGS.convert_to_coverage_model:
-      assert FLAGS.coverage, "To convert your non-coverage model to a coverage '
-          'model, run with convert_to_coverage_model=True and coverage=True"
+      assert FLAGS.coverage, ('To convert your non-coverage model to a coverage '
+          'model, run with convert_to_coverage_model=True and coverage=True')
       self.convert_to_coverage_model()
   
     if FLAGS.restore_best_model:
@@ -200,7 +201,7 @@ class ModelHelper(object):
   
     # self.summary_writer = self.sv.summary_writer
     # self.sess = self.sv.prepare_or_wait_for_session(config=util.get_config())
-    self.sess = tf.Session(config=util.get_config)
+    self.sess = tf.Session(config=util.get_config())
   
     if FLAGS.ac_training:
       tf.logging.info('DDQN building graph')
@@ -247,14 +248,14 @@ class ModelHelper(object):
     tf.logging.info("Preparing or waiting for session...")
     tf.logging.info("Created session.")
     try:
-      self.run_training() # this is an infinite loop until interrupted
+      self.training_loop(batcher) # this is an infinite loop until interrupted
     except (KeyboardInterrupt, SystemExit):
       tf.logging.info("Caught keyboard interrupt on worker. Stopping supervisor...")
       sv.stop()
       if FLAGS.ac_training:
         dqn_sv.stop()
 
-  def run_training(self):
+  def training_loop(self, batcher):
     """Repeatedly runs training iterations, logging loss to screen and writing
     summaries"""
     tf.logging.info("Starting run_training")
@@ -279,7 +280,7 @@ class ModelHelper(object):
     # starting the main thread
     tf.logging.info('Starting Seq2Seq training...')
     while True: # repeats until interrupted
-      batch = self.batcher.next_batch()
+      batch = batcher.next_batch()
       t0=time.time()
       if FLAGS.ac_training:
         # For DDQN:
@@ -483,7 +484,7 @@ class ModelHelper(object):
         self.thrd_dqn_training.daemon = True
         self.thrd_dqn_training.start()
   
-  def run_eval(self):
+  def run_eval(self, batcher):
     """Repeatedly runs eval iterations, logging to screen and writing summaries.
     Saves the model with the best loss seen so far."""
     self.model.build_graph() 
@@ -530,7 +531,7 @@ class ModelHelper(object):
       # machines with large batch size
       while processed_batch < 100*FLAGS.batch_size:
         processed_batch += FLAGS.batch_size
-        batch = self.batcher.next_batch() # get the next batch
+        batch = batcher.next_batch() # get the next batch
         if FLAGS.ac_training:
           t0 = time.time()
           transitions = self.model.collect_dqn_transitions(
@@ -576,7 +577,7 @@ class ModelHelper(object):
               if tr.done:
                 q_estimates[i][tr.action] = tr.reward
               else:
-                q_estimates[i][tr.action] = tr.reward + \ 
+                q_estimates[i][tr.action] = tr.reward + \
                     FLAGS.gamma * q_vals_new_t[i][dqn_best_action[i]]
             if FLAGS.dqn_scheduled_sampling:
               tf.logging.info('scheduled sampling on q-estimates')
@@ -698,6 +699,4 @@ class ModelHelper(object):
           indices=where_not_sampling, updates=_true, shape=base_shape)
       result = result1 + result2
       return result1 + result2
-
-
 

@@ -19,15 +19,17 @@ sequence-to-sequence model"""
 
 import os
 import time
+
 import numpy as np
 import tensorflow as tf
-from attention_decoder import attention_decoder
-from tensorflow.contrib.tensorboard.plugins import projector
 from nltk.translate.bleu_score import sentence_bleu
+from tensorflow.contrib.tensorboard.plugins import projector
+
+import data_utils
+from replay_buffer import Transition
 from rouge import rouge
 from rouge_tensor import rouge_l_fscore
-import data
-from replay_buffer import Transition
+from attention_decoder import attention_decoder
 
 
 FLAGS = tf.app.flags.FLAGS
@@ -39,7 +41,8 @@ class BaseModel:
 
 
 class SummarizationModel(BaseModel):
-  """A class to represent a sequence-to-sequence model for text summarization. Supports both baseline mode, pointer-generator mode, and coverage"""
+  """A class to represent a sequence-to-sequence model for text summarization. 
+  Supports both baseline mode, pointer-generator mode, and coverage"""
 
   def __init__(self, hps, vocab):
     self._hps = hps
@@ -58,7 +61,8 @@ class SummarizationModel(BaseModel):
     if 'rouge' in measure:
       return rouge([summary],[reference])[measure]
     else:
-      return sentence_bleu([reference.split()],summary.split(),weights=(0.25,0.25,0.25,0.25))
+      return sentence_bleu(
+          [reference.split()], summary.split(), weights=(0.25,0.25,0.25,0.25))
 
   def variable_summaries(self, var_name, var):
     """Attach a lot of summaries to a Tensor (for TensorBoard visualization)."""
@@ -77,9 +81,12 @@ class SummarizationModel(BaseModel):
     hps = self._hps
 
     # encoder part
-    self._enc_batch = tf.placeholder(tf.int32, [hps.batch_size, None], name='enc_batch')
-    self._enc_lens = tf.placeholder(tf.int32, [hps.batch_size], name='enc_lens')
-    self._enc_padding_mask = tf.placeholder(tf.float32, [hps.batch_size, None], name='enc_padding_mask')
+    self._enc_batch = tf.placeholder(
+        tf.int32, [hps.batch_size, None], name='enc_batch')
+    self._enc_lens = tf.placeholder(
+        tf.int32, [hps.batch_size], name='enc_lens')
+    self._enc_padding_mask = tf.placeholder(
+        tf.float32, [hps.batch_size, None], name='enc_padding_mask')
     self._eta = tf.placeholder(tf.float32, None, name='eta')
     if FLAGS.embedding:
       self.embedding_place = tf.placeholder(tf.float32, [self._vocab.size(), hps.emb_dim])
@@ -206,7 +213,7 @@ class SummarizationModel(BaseModel):
       embedding,
       self._sampling_probability if FLAGS.scheduled_sampling else 0,
       self._alpha if FLAGS.E2EBackProp else 0,
-      self._vocab.word2id(data.UNKNOWN_TOKEN),
+      self._vocab.word2id(data_utils.UNKNOWN_TOKEN),
       initial_state_attention=(hps.mode=="decode"),
       pointer_gen=hps.pointer_gen,
       use_coverage=hps.coverage,

@@ -8,8 +8,11 @@ from collections import namedtuple
 import numpy as np
 import tensorflow as tf
 
-from data import Vocab
+from data_utils import Vocab
+from batcher import Batcher
 from dqn import DQN
+from model import SummarizationModel
+from model_helper import ModelHelper
 
 
 flags = tf.app.flags
@@ -127,10 +130,10 @@ flags.DEFINE_boolean('dueling_net', True, 'Whether to use Duelling Network to '
     'train the model') # https://arxiv.org/pdf/1511.06581.pdf
 flags.DEFINE_boolean('dqn_polyak_averaging', True, 'Whether to use polyak '
     'averaging to update the target network parameters')
-flags.DEFINE_boolean('calculate_true_q', False, "Whether to use true Q-values '
-    'to train DQN or use DQN's estimates to train it")
-flags.DEFINE_boolean('dqn_pretrain', False, "Pretrain the DDQN network with '
-    'fixed Actor model")
+flags.DEFINE_boolean('calculate_true_q', False, 'Whether to use true Q-values '
+    'to train DQN or use DQN\'s estimates to train it')
+flags.DEFINE_boolean('dqn_pretrain', False, 'Pretrain the DDQN network with '
+    'fixed Actor model')
 flags.DEFINE_integer('dqn_pretrain_steps', 10000, 'Number of steps to '
     'pre-train the DDQN')
 
@@ -185,8 +188,8 @@ flags.DEFINE_boolean('restore_best_model', False, 'Restore the best model in '
     'become corrupted with e.g. NaN values.')
 
 # Debugging. See https://www.tensorflow.org/programmers_guide/debugger
-flags.DEFINE_boolean('debug', False, "Run in tensorflow's debug mode (watches '
-    'for NaN/inf values)")
+flags.DEFINE_boolean('debug', False, 'Run in tensorflow\'s debug mode (watches '
+    'for NaN/inf values)')
 
 
 def set_log():
@@ -265,9 +268,9 @@ def get_hparams():
       'pointer_gen']
 
   hps_dict = {}
-  for key,val in flags.items():
+  for key,val in FLAGS.flag_values_dict().items():
     if key in hparam_list: 
-      hps_dict[key] = val.value
+      hps_dict[key] = val
   if FLAGS.ac_training:
     hps_dict.update({'dqn_input_feature_len': (FLAGS.dec_hidden_dim)})
   hps = namedtuple("HParams", hps_dict.keys())(**hps_dict)
@@ -289,9 +292,9 @@ def dqn_hparams():
       'dqn_scheduled_sampling',
       'max_grad_norm']
   hps_dict = {}
-  for key,val in flags.items(): 
+  for key,val in FLAGS.flag_values_dict().items():
     if key in hparam_list: 
-      hps_dict[key] = val.value 
+      hps_dict[key] = val
   hps_dict.update({'dqn_input_feature_len':(FLAGS.dec_hidden_dim)})
   hps_dict.update({'vocab_size':self.vocab.size()})
   dqn_hps = namedtuple("HParams", hps_dict.keys())(**hps_dict)
@@ -330,7 +333,7 @@ def main(unused_argv):
       helper.dqn = DQN(self.dqn_hps,'current')
       # target DQN with paramters \Psi^{\prime}
       helper.dqn_target = DQN(self.dqn_hps,'target')
-    helper.run_train(batcher)
+    helper.run_training(batcher)
 
   elif hps.mode == 'eval':
     model = SummarizationModel(hps, vocab)
@@ -338,7 +341,7 @@ def main(unused_argv):
     if FLAGS.ac_training:
       helper.dqn = DQN(dqn_hps,'current')
       helper.dqn_target = DQN(dqn_hps,'target')
-    helper.run_eval()
+    helper.run_eval(batcher)
 
   elif hps.mode == 'decode':
     # This will be the hyperparameters for the decoder model

@@ -1,19 +1,3 @@
-# Copyright 2016 The TensorFlow Authors. All Rights Reserved.
-# Modifications Copyright 2017 Abigail See
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-# ==============================================================================
-
 """This file defines the decoder"""
 
 import tensorflow as tf
@@ -103,31 +87,53 @@ def attention_decoder(_hps,
     _max_art_oovs: size of the oov tokens in current batch.
     _enc_batch_extend_vocab: encoder extended vocab batch.
     emb_dec_inputs: A list of 2D Tensors [batch_size x emb_dim].
-    target_batch: The indices of the target words. shape (max_dec_steps, batch_size)
+    target_batch: The indices of the target words. shape (max_dec_steps, 
+      batch_size)
     _dec_in_state: 2D Tensor [batch_size x cell.state_size].
     _enc_states: 3D Tensor [batch_size x max_enc_steps x attn_size].
-    enc_padding_mask: 2D Tensor [batch_size x max_enc_steps] containing 1s and 0s; indicates which of the encoder locations are padding (0) or a real token (1).
-    dec_padding_mask: 2D Tensor [batch_size x max_dec_steps] containing 1s and 0s; indicates which of the decoder locations are padding (0) or a real token (1).
+    enc_padding_mask: 2D Tensor [batch_size x max_enc_steps] containing 1s and 
+      0s; indicates which of the encoder locations are padding (0) or a real 
+      token (1).
+    dec_padding_mask: 2D Tensor [batch_size x max_dec_steps] containing 1s and 
+      0s; indicates which of the decoder locations are padding (0) or a real 
+      token (1).
     cell: rnn_cell.RNNCell defining the cell function and size.
     embedding: embedding matrix [vocab_size, emb_dim].
     sampling_probability: sampling probability for scheduled sampling.
     alpha: soft-argmax argument.
-    initial_state_attention:
-      Note that this attention decoder passes each decoder input through a linear layer with the previous step's context vector to get a modified version of the input. If initial_state_attention is False, on the first decoder step the "previous context vector" is just a zero vector. If initial_state_attention is True, we use _dec_in_state to (re)calculate the previous step's context vector. We set this to False for train/eval mode (because we call attention_decoder once for all decoder steps) and True for decode mode (because we call attention_decoder once for each decoder step).
-    pointer_gen: boolean. If True, calculate the generation probability p_gen for each decoder step.
+    initial_state_attention: Note that this attention decoder passes each 
+      decoder input through a linear layer with the previous step's context 
+      vector to get a modified version of the input. If initial_state_attention 
+      is False, on the first decoder step the "previous context vector" is just 
+      a zero vector. If initial_state_attention is True, we use _dec_in_state 
+      to (re)calculate the previous step's context vector. We set this to False 
+      for train/eval mode (because we call attention_decoder once for all 
+      decoder steps) and True for decode mode (because we call attention_decoder
+      once for each decoder step).
+    pointer_gen: boolean. If True, calculate the generation probability p_gen '
+      for each decoder step.
     use_coverage: boolean. If True, use coverage mechanism.
-    prev_coverage:
-      If not None, a tensor with shape (batch_size, max_enc_steps). The previous step's coverage vector. This is only not None in decode mode when using coverage.
-    prev_decoder_outputs: if not empty, a tensor of (len(prev_decoder_steps), batch_size, hidden_dim). The previous decoder output used for calculating the intradecoder attention during decode mode
-    prev_encoder_es: if not empty, a tensor of (len(prev_encoder_es), batch_size, hidden_dim). The previous attention vector used for calculating the temporal attention during decode mode.
+    prev_coverage: If not None, a tensor with shape (batch_size, max_enc_steps). 
+      The previous step's coverage vector. This is only not None in decode mode 
+      when using coverage.
+    prev_decoder_outputs: if not empty, a tensor of (len(prev_decoder_steps), 
+      batch_size, hidden_dim). The previous decoder output used for calculating 
+      the intradecoder attention during decode mode
+    prev_encoder_es: if not empty, a tensor of (len(prev_encoder_es), 
+      batch_size, hidden_dim). The previous attention vector used for 
+      calculating the temporal attention during decode mode.
   Returns:
     outputs: A list of the same length as emb_dec_inputs of 2D Tensors of
       shape [batch_size x cell.output_size]. The output vectors.
-    state: The final state of the decoder. A tensor shape [batch_size x cell.state_size].
+    state: The final state of the decoder. A tensor shape [batch_size, 
+      cell.state_size].
     attn_dists: A list containing tensors of shape (batch_size,max_enc_steps).
       The attention distributions for each decoder step.
-    p_gens: List of length emb_dim, containing tensors of shape [batch_size, 1]. The values of p_gen for each decoder step. Empty list if pointer_gen=False.
-    coverage: Coverage vector on the last step computed. None if use_coverage=False.
+    p_gens: List of length emb_dim, containing tensors of shape [batch_size, 
+      1]. The values of p_gen for each decoder step. Empty list if 
+      pointer_gen=False.
+    coverage: Coverage vector on the last step computed. None if 
+      use_coverage=False.
     vocab_scores: vocab distribution.
     final_dists: final output distribution.
     samples: contains sampled tokens.
@@ -135,13 +141,15 @@ def attention_decoder(_hps,
     temporal_e: contains temporal attention.
   """
   with variable_scope.variable_scope("attention_decoder") as scope:
-    batch_size = _enc_states.get_shape()[0] # if this line fails, it's because the batch size isn't defined
-    attn_size = _enc_states.get_shape()[2] # if this line fails, it's because the attention length isn't defined
-    emb_size = emb_dec_inputs[0].get_shape()[1] # if this line fails, it's because the embedding isn't defined
+    batch_size = _enc_states.get_shape()[0] 
+    attn_size = _enc_states.get_shape()[2] 
+    emb_size = emb_dec_inputs[0].get_shape()[1] 
     decoder_attn_size = _dec_in_state.c.get_shape()[1]
-    tf.logging.info("batch_size %i, attn_size: %i, emb_size: %i", batch_size, attn_size, emb_size)
+    tf.logging.info("batch_size %i, attn_size: %i, emb_size: %i",
+        batch_size, attn_size, emb_size)
     # Reshape _enc_states (need to insert a dim)
-    _enc_states = tf.expand_dims(_enc_states, axis=2) # now is shape (batch_size, max_enc_steps, 1, attn_size)
+    # now is shape (batch_size, max_enc_steps, 1, attn_size)
+    _enc_states = tf.expand_dims(_enc_states, axis=2) 
 
     # To calculate attention, we calculate
     #   v^T tanh(W_h h_i + W_s s_t + b_attn)

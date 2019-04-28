@@ -13,6 +13,7 @@ import numpy as np
 import tensorflow as tf
 
 import data_utils
+from model import SummarizationModel
 
 
 random.seed(123)
@@ -41,7 +42,7 @@ class Example(object):
 
     # Process the article
     article_words = article.split()
-    if len(article_wor$ds) > hps.max_enc_steps:
+    if len(article_words) > hps.max_enc_steps:
       article_words = article_words[:hps.max_enc_steps]
     self.enc_len = len(article_words) 
     self.enc_input = [vocab.word2id(w) for w in article_words] 
@@ -135,7 +136,7 @@ class Batch(object):
       hps: hyperparameters
       vocab: Vocabulary object
     """
-    self.pad_id = vocab.word2id(data.PAD_TOKEN) 
+    self.pad_id = vocab.word2id(data_utils.PAD_TOKEN) 
     self.init_encoder_seq(example_list, hps) 
     self.init_decoder_seq(example_list, hps) 
     self.store_orig_strings(example_list) 
@@ -290,7 +291,7 @@ class Batcher(object):
 
     while True:
       try:
-        (article, abstract) = input_gen.next() 
+        (article, abstract) = next(input_gen)
       except StopIteration: # if there are no more examples:
         tf.logging.info("The example generator for this example queue filling "
             "thread has exhausted data.")
@@ -367,7 +368,7 @@ class Batcher(object):
     """
     cnt = 0
     while True:
-      e = example_generator.next() # e is a tf.Example
+      e = next(example_generator) # e is a tf.Example
       try:
         # the article text was saved under the key 'article' in the data files
         article_text = e.features.feature['article'].bytes_list.value[0] 
