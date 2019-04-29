@@ -77,43 +77,61 @@ class SummarizationModel(BaseModel):
       tf.summary.histogram('histogram', var)
 
   def _add_placeholders(self):
-    """Add placeholders to the graph. These are entry points for any input data."""
+    """Add placeholders to the graph. These are entry points for any input data.
+    """
     hps = self._hps
+
+    # embedding
+    if FLAGS.embedding:
+      self.embedding_place = tf.placeholder(
+          tf.float32, [self._vocab.size(), hps.emb_dim])
+    if FLAGS.pointer_gen:
+      self._enc_batch_extend_vocab = tf.placeholder(
+          tf.int32, [hps.batch_size, None], name='enc_batch_extend_vocab')
+      self._max_art_oovs = tf.placeholder(tf.int32, [], name='max_art_oovs')
 
     # encoder part
     self._enc_batch = tf.placeholder(
         tf.int32, [hps.batch_size, None], name='enc_batch')
-    self._enc_lens = tf.placeholder(
-        tf.int32, [hps.batch_size], name='enc_lens')
+    self._enc_lens = tf.placeholder(tf.int32, [hps.batch_size], name='enc_lens')
     self._enc_padding_mask = tf.placeholder(
         tf.float32, [hps.batch_size, None], name='enc_padding_mask')
     self._eta = tf.placeholder(tf.float32, None, name='eta')
-    if FLAGS.embedding:
-      self.embedding_place = tf.placeholder(tf.float32, [self._vocab.size(), hps.emb_dim])
-    if FLAGS.pointer_gen:
-      self._enc_batch_extend_vocab = tf.placeholder(tf.int32, [hps.batch_size, None], name='enc_batch_extend_vocab')
-      self._max_art_oovs = tf.placeholder(tf.int32, [], name='max_art_oovs')
-    if FLAGS.ac_training: # added by yaserkl@vt.edu for the purpose of calculating rouge loss
-      self._q_estimates = tf.placeholder(tf.float32, [self._hps.batch_size,self._hps.k,self._hps.max_dec_steps, None], name='q_estimates')
-    if FLAGS.scheduled_sampling:
-      self._sampling_probability = tf.placeholder(tf.float32, None, name='sampling_probability')
-      self._alpha = tf.placeholder(tf.float32, None, name='alpha')
 
     # decoder part
-    self._dec_batch = tf.placeholder(tf.int32, [hps.batch_size, hps.max_dec_steps], name='dec_batch')
-    self._target_batch = tf.placeholder(tf.int32, [hps.batch_size, hps.max_dec_steps], name='target_batch')
-    self._dec_padding_mask = tf.placeholder(tf.float32, [hps.batch_size, hps.max_dec_steps], name='dec_padding_mask')
+    self._dec_batch = tf.placeholder(
+        tf.int32, [hps.batch_size, hps.max_dec_steps], name='dec_batch')
+    self._target_batch = tf.placeholder(
+        tf.int32, [hps.batch_size, hps.max_dec_steps], name='target_batch')
+    self._dec_padding_mask = tf.placeholder(tf.float32,
+        [hps.batch_size, hps.max_dec_steps], name='dec_padding_mask')
+
+    if FLAGS.ac_training: 
+      # added by yaserkl@vt.edu for the purpose of calculating rouge loss
+      self._q_estimates = tf.placeholder(
+          tf.float32, 
+          [self._hps.batch_size,self._hps.k,self._hps.max_dec_steps, None], 
+          name='q_estimates')
+    if FLAGS.scheduled_sampling:
+      self._sampling_probability = tf.placeholder(
+          tf.float32, None, name='sampling_probability')
+      self._alpha = tf.placeholder(tf.float32, None, name='alpha')
 
     if hps.mode == "decode":
       if hps.coverage:
-        self.prev_coverage = tf.placeholder(tf.float32, [hps.batch_size, None], name='prev_coverage')
+        self.prev_coverage = tf.placeholder(
+            tf.float32, [hps.batch_size, None], name='prev_coverage')
       if hps.intradecoder:
-        self.prev_decoder_outputs = tf.placeholder(tf.float32, [None, hps.batch_size, hps.dec_hidden_dim], name='prev_decoder_outputs')
+        self.prev_decoder_outputs = tf.placeholder(tf.float32, 
+            [None, hps.batch_size, hps.dec_hidden_dim],
+            name='prev_decoder_outputs')
       if hps.use_temporal_attention:
-        self.prev_encoder_es = tf.placeholder(tf.float32, [None, hps.batch_size, None], name='prev_encoder_es')
+        self.prev_encoder_es = tf.placeholder(
+            tf.float32, [None, hps.batch_size, None], name='prev_encoder_es')
 
   def _make_feed_dict(self, batch, just_enc=False):
-    """Make a feed dictionary mapping parts of the batch to the appropriate placeholders.
+    """Make a feed dictionary mapping parts of the batch to the appropriate 
+    placeholders.
 
     Args:
       batch: Batch object
@@ -486,7 +504,8 @@ class SummarizationModel(BaseModel):
     tf.logging.info('Time to build graph: %i seconds', t1 - t0)
 
   def collect_dqn_transitions(self, sess, batch, step, max_art_oovs):
-    """Get decoders' output and calculate reward at each decoding step, Q-function, value-function, and Advantage function.
+    """Get decoders' output and calculate reward at each decoding step, 
+    Q-function, value-function, and Advantage function.
     Args:
       sess: seq2seq model session
       batch: current batch
@@ -513,12 +532,32 @@ class SummarizationModel(BaseModel):
 
     vsize_extended = self._vocab.size() + max_art_oovs
     if self._hps.calculate_true_q:
-      self.advantages = np.zeros((self._hps.batch_size, self._hps.k, self._hps.max_dec_steps, vsize_extended),dtype=np.float32) # (batch_size, k, <=max_dec_steps,vocab_size)
-      self.q_values = np.zeros((self._hps.batch_size, self._hps.k, self._hps.max_dec_steps, vsize_extended),dtype=np.float32) # (batch_size, k, <=max_dec_steps,vocab_size)
-      self.r_values = np.zeros((self._hps.batch_size, self._hps.k, self._hps.max_dec_steps, vsize_extended),dtype=np.float32) # (batch_size, k, <=max_dec_steps,vocab_size)
-      self.v_values = np.zeros((self._hps.batch_size, self._hps.k, self._hps.max_dec_steps),dtype=np.float32) # (batch_size, k, <=max_dec_steps)
+      self.advantages = np.zeros(
+          (self._hps.batch_size, 
+           self._hps.k, 
+           self._hps.max_dec_steps, 
+           vsize_extended),
+          dtype=np.float32) # (batch_size, k, <=max_dec_steps,vocab_size)
+      self.q_values = np.zeros(
+          (self._hps.batch_size, 
+           self._hps.k, 
+           self._hps.max_dec_steps, 
+           vsize_extended),
+          dtype=np.float32) # (batch_size, k, <=max_dec_steps,vocab_size)
+      self.r_values = np.zeros(
+          (self._hps.batch_size, 
+           self._hps.k, 
+           self._hps.max_dec_steps, 
+           vsize_extended),
+          dtype=np.float32) # (batch_size, k, <=max_dec_steps,vocab_size)
+      self.v_values = np.zeros(
+          (self._hps.batch_size, self._hps.k, self._hps.max_dec_steps),
+          dtype=np.float32) # (batch_size, k, <=max_dec_steps)
     else:
-      self.r_values = np.zeros((self._hps.batch_size, self._hps.k, self._hps.max_dec_steps),dtype=np.float32) # (batch_size, k, <=max_dec_steps)
+      self.r_values = np.zeros(
+          (self._hps.batch_size, self._hps.k, self._hps.max_dec_steps),
+          dtype=np.float32) # (batch_size, k, <=max_dec_steps)
+
     to_return = {
       'sampled_sentences': self.sampled_sentences,
       'greedy_search_sentences': self.greedy_search_sentences,
@@ -526,7 +565,6 @@ class SummarizationModel(BaseModel):
     }
     # Run the seq2seq model to get the decoders' output.
     ret_dict = sess.run(to_return, feed_dict)
-
 
     # Calculating reward, Q, V, and A values
     _t = time.time()
@@ -545,8 +583,13 @@ class SummarizationModel(BaseModel):
         else:
           # if using DDQN estimates, we only need to calculate the reward and later on estimate Q values.
           self.r_values[_n, i, :] = self.caluclate_single_reward(_ss, _gts) # len max_dec_steps
+
     tf.logging.info('seconds for dqn collection: {}'.format(time.time()-_t))
-    trasitions = self.prepare_dqn_transitions(self._hps, ret_dict['decoder_outputs'], ret_dict['greedy_search_sentences'], vsize_extended)
+    trasitions = self.prepare_dqn_transitions(
+        self._hps, 
+        ret_dict['decoder_outputs'], 
+        ret_dict['greedy_search_sentences'], 
+        vsize_extended)
     return trasitions
 
   def caluclate_advantage_function(self, _ss, _gts, vsize_extended):
@@ -689,9 +732,9 @@ class SummarizationModel(BaseModel):
       sess: seq2seq session
       batch: current batch
       step: training step
-      q_estimates = if using Actor-Critic model, this variable will feed
-      the Q-estimates collected from Critic and use it to update the model
-      loss
+      q_estimates: if using Actor-Critic model, this variable will feed
+        the Q-estimates collected from Critic and use it to update the model
+        loss
     """
     feed_dict = self._make_feed_dict(batch)
     if self._hps.ac_training or self._hps.rl_training:
@@ -742,7 +785,8 @@ class SummarizationModel(BaseModel):
     return sess.run(to_return, feed_dict)
 
   def run_eval_step(self, sess, batch, step, q_estimates=None):
-    """ Run eval steps, same as training with difference that we don't update the loss, here
+    """ Run eval steps, same as training with difference that we don't update 
+    the loss, here
     Args:
       sess: seq2seq session
       batch: current batch
@@ -811,7 +855,8 @@ class SummarizationModel(BaseModel):
     dec_in_state = tf.contrib.rnn.LSTMStateTuple(dec_in_state.c[0], dec_in_state.h[0])
     return enc_states, dec_in_state
 
-  def decode_onestep(self, sess, batch, latest_tokens, enc_states, dec_init_states, prev_coverage, prev_decoder_outputs, prev_encoder_es):
+  def decode_onestep(self, sess, batch, latest_tokens, enc_states, 
+      dec_init_states, prev_coverage, prev_decoder_outputs, prev_encoder_es):
     """For beam search decoding. Run the decoder for one step.
 
     Args:

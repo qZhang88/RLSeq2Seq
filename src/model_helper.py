@@ -265,6 +265,9 @@ class ModelHelper(object):
       self.sess.add_tensor_filter("has_inf_or_nan", tf_debug.has_inf_or_nan)
   
     self.train_step = 0
+    # TODO: figure out if this is right
+    self.sess.run(tf.global_variables_initializer())
+
     if FLAGS.ac_training:
       # DDQN training is done asynchronously along with model training
       tf.logging.info('Starting DQN training thread...')

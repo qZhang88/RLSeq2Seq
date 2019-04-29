@@ -1,4 +1,5 @@
-"""This is the top-level file to train, evaluate or test your summarization model"""
+"""This is the top-level file to train, evaluate or test your summarization 
+model"""
 
 
 import os
@@ -22,7 +23,7 @@ tf.set_random_seed(111) # a seed value for randomness
 # Where to find data
 flags.DEFINE_string('data_path', '', 'Path expression to tf.Example datafiles.'
     ' Can include wildcards to access multiple datafiles.')
-flags.DEFINE_string('vocab_path', '', 'Path expression to text vocabulary file.')
+flags.DEFINE_string('vocab_path', '', 'Path expression to text vocab file.')
 
 # Important settings
 flags.DEFINE_string('mode', 'train', 'must be one of train/eval/decode')
