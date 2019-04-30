@@ -163,15 +163,17 @@ class ModelHelper(object):
       dqn_train_dir = os.path.join(FLAGS.log_root, "dqn", "train")
       if not os.path.exists(dqn_train_dir): os.makedirs(dqn_train_dir)
   
-    #replaybuffer_pcl_path = os.path.join(FLAGS.log_root, "replaybuffer.pcl")
-    #if not os.path.exists(dqn_target_train_dir): os.makedirs(dqn_target_train_dir)
+    # replaybuffer_pcl_path = os.path.join(FLAGS.log_root, "replaybuffer.pcl")
+    # if not os.path.exists(dqn_target_train_dir): 
+    #   os.makedirs(dqn_target_train_dir)
   
     self.model.build_graph() 
   
     if FLAGS.convert_to_reinforce_model:
-      assert (FLAGS.rl_training or FLAGS.ac_training), ('To convert your pointer'
-          ' model to a reinforce model, run with convert_to_reinforce_model='
-          'True and either rl_training=True or ac_training=True')
+      assert (FLAGS.rl_training or FLAGS.ac_training), ('To convert your '
+          'pointer model to a reinforce model, run with '
+          'convert_to_reinforce_model=True and either '
+          'rl_training=True or ac_training=True')
       self.convert_to_reinforce_model()
   
     if FLAGS.convert_to_coverage_model:
@@ -180,7 +182,7 @@ class ModelHelper(object):
       self.convert_to_coverage_model()
   
     if FLAGS.restore_best_model:
-      restore_best_model()
+      self.restore_best_model()
     saver = tf.train.Saver(max_to_keep=3) # keep 3 checkpoints at a time
   
     # Loads pre-trained word-embedding. By default the model learns the 
@@ -189,18 +191,19 @@ class ModelHelper(object):
       self.vocab.LoadWordEmbedding(FLAGS.embedding, FLAGS.emb_dim)
       word_vector = self.vocab.getWordEmbedding()
   
-    # sv = tf.train.Supervisor(logdir=train_dir,
+    # TODO: clean
+    # self.ms = tf.train.MonitoredTrainingSession(
     #     is_chief=True,
-    #     saver=saver,
-    #     # summary_op=None,
+    #     config=util.get_config(),
+    #     checkpoint_dir=train_dir,
+    #     summary_dir=train_dir,
     #     save_summaries_secs=60, 
-    #     save_model_secs=60, )
-    #     # global_step=model.global_step,
+    #     save_checkpoint_secs=600,
     #     # init_feed_dict={model.embedding_place: word_vector} 
     #     #     if FLAGS.embedding else None)
-  
     # self.summary_writer = self.sv.summary_writer
-    # self.sess = self.sv.prepare_or_wait_for_session(config=util.get_config())
+
+    self.summary_writer = tf.summary.FileWriter(train_dir)
     self.sess = tf.Session(config=util.get_config())
   
     if FLAGS.ac_training:
@@ -265,7 +268,6 @@ class ModelHelper(object):
       self.sess.add_tensor_filter("has_inf_or_nan", tf_debug.has_inf_or_nan)
   
     self.train_step = 0
-    # TODO: figure out if this is right
     self.sess.run(tf.global_variables_initializer())
 
     if FLAGS.ac_training:
@@ -321,7 +323,7 @@ class ModelHelper(object):
           # q_estimates shape (len(transitions), vocab_size)
           q_estimates = dqn_results['estimates'] 
           dqn_best_action = dqn_results['best_action']
-          #dqn_q_estimate_loss = dqn_results['loss']
+          # dqn_q_estimate_loss = dqn_results['loss']
   
           # use target DQN to estimate values for the next decoder state
           dqn_target_results = self.dqn_target.run_test_steps(
@@ -400,17 +402,25 @@ class ModelHelper(object):
       if FLAGS.coverage:
         printer_helper['coverage_loss'] = results['coverage_loss']
         if FLAGS.rl_training or FLAGS.ac_training:
-          printer_helper['rl_cov_total_loss'] = results['reinforce_cov_total_loss']
+          printer_helper['rl_cov_total_loss'] = results[
+              'reinforce_cov_total_loss']
         else:
-          printer_helper['pointer_cov_total_loss'] = results['pointer_cov_total_loss']
+          printer_helper['pointer_cov_total_loss'] = results[
+              'pointer_cov_total_loss']
+
       if FLAGS.rl_training or FLAGS.ac_training:
         printer_helper['shared_loss'] = results['shared_loss']
         printer_helper['rl_loss'] = results['rl_loss']
         printer_helper['rl_avg_logprobs'] = results['rl_avg_logprobs']
+
       if FLAGS.rl_training:
-        printer_helper['sampled_r'] = np.mean(results['sampled_sentence_r_values'])
-        printer_helper['greedy_r'] = np.mean(results['greedy_sentence_r_values'])
-        printer_helper['r_diff'] = printer_helper['greedy_r'] - printer_helper['sampled_r']
+        printer_helper['sampled_r'] = np.mean(
+            results['sampled_sentence_r_values'])
+        printer_helper['greedy_r'] = np.mean(
+            results['greedy_sentence_r_values'])
+        printer_helper['r_diff'] = printer_helper['greedy_r'] - \
+            printer_helper['sampled_r']
+
       if FLAGS.ac_training:
         if len(self.avg_dqn_loss)>0:
           printer_helper['dqn_loss'] = np.mean(self.avg_dqn_loss) 

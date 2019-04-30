@@ -50,9 +50,10 @@ flags.DEFINE_integer('bucketing_cache_size', 100, 'Number of bucketing cache '
     'size.')
 
 # Hyperparameters
+flags.DEFINE_string('embedding', None, 'path to the pre-trained embedding file')
+flags.DEFINE_integer('emb_dim', 128, 'dimension of word embeddings')
 flags.DEFINE_integer('enc_hidden_dim', 256, 'dimension of RNN hidden states')
 flags.DEFINE_integer('dec_hidden_dim', 256, 'dimension of RNN hidden states')
-flags.DEFINE_integer('emb_dim', 128, 'dimension of word embeddings')
 flags.DEFINE_integer('batch_size', 64, 'minibatch size')
 flags.DEFINE_integer('max_enc_steps', 400, 'max timesteps of encoder (max '
     'source text tokens)')
@@ -74,7 +75,6 @@ flags.DEFINE_float('rand_unif_init_mag', 0.02, 'magnitude for lstm cells '
 flags.DEFINE_float('trunc_norm_init_std', 1e-4, 'std of trunc norm init, used '
     'for initializing everything else')
 flags.DEFINE_float('max_grad_norm', 2.0, 'for gradient clipping')
-flags.DEFINE_string('embedding', None, 'path to the pre-trained embedding file')
 flags.DEFINE_integer('gpu_num', 0, 'which gpu to use to train the model')
 
 # Pointer-generator or baseline model

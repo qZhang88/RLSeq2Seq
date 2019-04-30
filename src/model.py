@@ -240,9 +240,12 @@ class SummarizationModel(BaseModel):
       prev_encoder_es = prev_encoder_es)
 
   def _add_emb_vis(self, embedding_var):
-    """Do setup so that we can view word embedding visualization in Tensorboard, as described here:
-    https://www.tensorflow.org/get_started/embedding_viz
-    Make the vocab metadata file, then make the projector config file pointing to it."""
+    """Do setup so that we can view word embedding visualization in Tensorboard,
+    as described here:
+      https://www.tensorflow.org/get_started/embedding_viz
+    Make the vocab metadata file, then make the projector config file pointing 
+    to it.
+    """
     train_dir = os.path.join(FLAGS.log_root, "train")
     vocab_metadata_path = os.path.join(train_dir, "vocab_metadata.tsv")
     self._vocab.write_metadata(vocab_metadata_path) # write metadata file
@@ -254,7 +257,8 @@ class SummarizationModel(BaseModel):
     projector.visualize_embeddings(summary_writer, config)
 
   def discount_rewards(self, r):
-    """ take a list of size max_dec_step * (batch_size, k) and return a list of the same size """
+    """take a list of size max_dec_step * (batch_size, k) and return a list of
+    the same size """
     discounted_r = []
     running_add = tf.constant(0, tf.float32)
     for t in reversed(range(0, len(r))):
@@ -265,8 +269,10 @@ class SummarizationModel(BaseModel):
     return tf.unstack(normalized_discounted_r) # list of max_dec_step * (batch_size, k)
 
   def intermediate_rewards(self, r):
-    """ take a list of size max_dec_step * (batch_size, k) and return a list of the same size
-        uses the intermediate reward as proposed by: R_t = r_t - r_{t-1} """
+    """take a list of size max_dec_step * (batch_size, k) and return a list of
+    the same size uses the intermediate reward as proposed by: 
+    R_t = r_t - r_{t-1} 
+    """
     intermediate_r = []
     intermediate_r.append(r[0])
     for t in range(1, len(r)):
@@ -280,46 +286,67 @@ class SummarizationModel(BaseModel):
 
     with tf.variable_scope('seq2seq'):
       # Some initializers
-      self.rand_unif_init = tf.random_uniform_initializer(-hps.rand_unif_init_mag, hps.rand_unif_init_mag, seed=123)
-      self.trunc_norm_init = tf.truncated_normal_initializer(stddev=hps.trunc_norm_init_std)
+      self.rand_unif_init = tf.random_uniform_initializer(
+          -hps.rand_unif_init_mag, hps.rand_unif_init_mag, seed=123)
+      self.trunc_norm_init = tf.truncated_normal_initializer(
+          stddev=hps.trunc_norm_init_std)
 
       # Add embedding matrix (shared by the encoder and decoder inputs)
       with tf.variable_scope('embedding'):
         if FLAGS.embedding:
           embedding = tf.Variable(self.embedding_place)
         else:
-          embedding = tf.get_variable('embedding', [vsize, hps.emb_dim], dtype=tf.float32, initializer=self.trunc_norm_init)
+          embedding = tf.get_variable('embedding', 
+              [vsize, hps.emb_dim], 
+              dtype=tf.float32, 
+              initializer=self.trunc_norm_init)
         if hps.mode=="train": self._add_emb_vis(embedding) # add to tensorboard
-        emb_enc_inputs = tf.nn.embedding_lookup(embedding, self._enc_batch) # tensor with shape (batch_size, max_enc_steps, emb_size)
-        emb_dec_inputs = [tf.nn.embedding_lookup(embedding, x) for x in tf.unstack(self._dec_batch, axis=1)] # list length max_dec_steps containing shape (batch_size, emb_size)
+
+        # encoder inpute
+        emb_enc_inputs = tf.nn.embedding_lookup(embedding, self._enc_batch) 
+
+        # list length max_dec_steps containing shape (batch_size, emb_size)
+        emb_dec_inputs = [tf.nn.embedding_lookup(embedding, x) 
+            for x in tf.unstack(self._dec_batch, axis=1)] 
 
       # Add the encoder.
-      enc_outputs, fw_st, bw_st = self._add_encoder(emb_enc_inputs, self._enc_lens)
+      enc_outputs, fw_st, bw_st = self._add_encoder(
+          emb_enc_inputs, self._enc_lens)
       self._enc_states = enc_outputs
 
-      # Our encoder is bidirectional and our decoder is unidirectional so we need to reduce the final encoder hidden state to the right size to be the initial decoder hidden state
+      # Our encoder is bidirectional and our decoder is unidirectional so we 
+      # need to reduce the final encoder hidden state to the right size to be 
+      # the initial decoder hidden state
       self._dec_in_state = self._reduce_states(fw_st, bw_st)
 
       # Add the decoder.
       with tf.variable_scope('decoder'):
-        (self.decoder_outputs, self._dec_out_state, self.attn_dists, self.p_gens, self.coverage, self.vocab_scores,
-         self.final_dists, self.samples, self.greedy_search_samples, self.temporal_es,
-         self.sampling_rewards, self.greedy_rewards) = self._add_decoder(emb_dec_inputs, embedding)
+        (self.decoder_outputs, self._dec_out_state, self.attn_dists, 
+            self.p_gens, self.coverage, self.vocab_scores,
+            self.final_dists, self.samples, self.greedy_search_samples, 
+            self.temporal_es, self.sampling_rewards, 
+            self.greedy_rewards) = self._add_decoder(emb_dec_inputs, embedding)
 
       if FLAGS.use_discounted_rewards and hps.rl_training and hps.mode in ['train', 'eval']:
         # Get the sampled and greedy sentence from model output
         # self.samples: (max_dec_steps, batch_size, k)
-        self.sampling_discounted_rewards = tf.stack(self.discount_rewards(tf.unstack(self.sampling_rewards))) # list of max_dec_steps * (batch_size, k)
-        self.greedy_discounted_rewards = tf.stack(self.discount_rewards(tf.unstack(self.greedy_rewards))) # list of max_dec_steps * (batch_size, k)
+        self.sampling_discounted_rewards = tf.stack(
+            self.discount_rewards(tf.unstack(self.sampling_rewards))) # list of max_dec_steps * (batch_size, k)
+        self.greedy_discounted_rewards = tf.stack(
+            self.discount_rewards(tf.unstack(self.greedy_rewards))) # list of max_dec_steps * (batch_size, k)
       elif FLAGS.use_intermediate_rewards and hps.rl_training and hps.mode in ['train', 'eval']:
         # Get the sampled and greedy sentence from model output
         # self.samples: (max_dec_steps, batch_size, k)
-        self.sampling_discounted_rewards = tf.stack(self.intermediate_rewards(tf.unstack(self.sampling_rewards))) # list of max_dec_steps * (batch_size, k)
-        self.greedy_discounted_rewards = tf.stack(self.intermediate_rewards(tf.unstack(self.greedy_rewards))) # list of max_dec_steps * (batch_size, k)
+        self.sampling_discounted_rewards = tf.stack(
+            self.intermediate_rewards(tf.unstack(self.sampling_rewards))) # list of max_dec_steps * (batch_size, k)
+        self.greedy_discounted_rewards = tf.stack(
+            self.intermediate_rewards(tf.unstack(self.greedy_rewards))) # list of max_dec_steps * (batch_size, k)
       elif hps.ac_training and hps.mode in ['train', 'eval']:
         # Get the sampled and greedy sentence from model output
-        self.sampled_sentences = tf.transpose(tf.stack(self.samples), perm=[1,2,0]) # (batch_size, k, <=max_dec_steps) word indices
-        self.greedy_search_sentences = tf.transpose(tf.stack(self.greedy_search_samples), perm=[1,2,0]) # (batch_size, k, <=max_dec_steps) word indices
+        self.sampled_sentences = tf.transpose(
+            tf.stack(self.samples), perm=[1,2,0]) # (batch_size, k, <=max_dec_steps) word indices
+        self.greedy_search_sentences = tf.transpose(
+            tf.stack(self.greedy_search_samples), perm=[1,2,0]) # (batch_size, k, <=max_dec_steps) word indices
 
     if hps.mode == "decode":
       # We run decode beam search mode one decoder step at a time
@@ -332,8 +359,10 @@ class SummarizationModel(BaseModel):
     # Calculate the loss
     with tf.variable_scope('shared_loss'):
       # Calculate the loss per step
-      # This is fiddly; we use tf.gather_nd to pick out the probabilities of the gold target words
-      #### added by yaserkl@vt.edu: we just calculate these to monitor pgen_loss throughout time
+      # This is fiddly; we use tf.gather_nd to pick out the probabilities of the
+      # gold target words
+      #### added by yaserkl@vt.edu: we just calculate these to monitor pgen_loss
+      # throughout time
       loss_per_step = [] # will be list length max_dec_steps containing shape (batch_size)
       batch_nums = tf.range(0, limit=self._hps.batch_size) # shape (batch_size)
       for dec_step, dist in enumerate(self.final_dists):
@@ -370,9 +399,15 @@ class SummarizationModel(BaseModel):
         with tf.variable_scope('reinforce_loss'):
           #### this is the actual loss
           self._rl_avg_logprobs = tf.reduce_mean([_mask_and_avg(loss_per_sample, self._dec_padding_mask) for loss_per_sample in loss_per_step])
-          self._rl_loss = tf.reduce_mean([_mask_and_avg(q_loss_per_sample, self._dec_padding_mask) for q_loss_per_sample in q_loss_per_step])
+          self._rl_loss = tf.reduce_mean(
+              [_mask_and_avg(q_loss_per_sample, self._dec_padding_mask) 
+                for q_loss_per_sample in q_loss_per_step])
           # Eq. 34 in https://arxiv.org/pdf/1805.09461.pdf
-          self._reinforce_shared_loss = self._eta * self._rl_loss + (tf.constant(1.,dtype=tf.float32) - self._eta) * self._pgen_loss # equation 16 in https://arxiv.org/pdf/1705.04304.pdf
+
+          # Eq. 16 in https://arxiv.org/pdf/1705.04304.pdf
+          self._reinforce_shared_loss = self._eta * self._rl_loss + \
+              (tf.constant(1.,dtype=tf.float32) - self._eta) * self._pgen_loss 
+
           #### the following is only for monitoring purposes
           self.variable_summaries('reinforce_avg_logprobs', self._rl_avg_logprobs)
           self.variable_summaries('reinforce_loss', self._rl_loss)
@@ -380,7 +415,8 @@ class SummarizationModel(BaseModel):
 
       # Adding Self-Critic Reward to CE loss in Policy-Gradient Model
       if self._hps.rl_training:
-        #### Calculating the reinforce loss according to Eq. 15 in https://arxiv.org/pdf/1705.04304.pdf
+        #### Calculating the reinforce loss according to Eq. 15 in 
+        # https://arxiv.org/pdf/1705.04304.pdf
         loss_per_step = [] # will be list length max_dec_steps*k containing shape (batch_size)
         rl_loss_per_step = [] # will be list length max_dec_steps*k containing shape (batch_size)
         batch_nums = tf.range(0, limit=self._hps.batch_size) # shape (batch_size)
@@ -389,14 +425,17 @@ class SummarizationModel(BaseModel):
         self._reward_diff = []
         for _ in range(self._hps.k):
           if FLAGS.use_discounted_rewards or FLAGS.use_intermediate_rewards:
-            self._sampled_rouges.append(self.sampling_discounted_rewards[:, :, _]) # shape (max_enc_steps, batch_size)
+            self._sampled_rouges.append(
+                self.sampling_discounted_rewards[:, :, _]) # shape (max_enc_steps, batch_size)
             self._greedy_rouges.append(self.greedy_discounted_rewards[:, :, _]) # shape (max_enc_steps, batch_size)
           else:
-            # use the reward of last step, since we use the reward of the whole sentence in this case
+            # use the reward of last step, since we use the reward of the whole
+            # sentence in this case
             self._sampled_rouges.append(self.sampling_rewards[:, _]) # shape (batch_size)
             self._greedy_rouges.append(self.greedy_rewards[:, _]) # shape (batch_size)
           if FLAGS.self_critic:
-            self._reward_diff.append(self._greedy_rouges[_]-self._sampled_rouges[_])
+            self._reward_diff.append(
+                self._greedy_rouges[_] - self._sampled_rouges[_])
           else:
             self._reward_diff.append(self._sampled_rouges[_])
         for dec_step, dist in enumerate(self.final_dists):
@@ -461,7 +500,8 @@ class SummarizationModel(BaseModel):
 
   def _add_shared_train_op(self):
     """Sets self._train_op, the op to run for training."""
-    # Take gradients of the trainable variables w.r.t. the loss function to minimize
+    # Take gradients of the trainable variables w.r.t. the loss function to 
+    # minimize
     if self._hps.rl_training or self._hps.ac_training:
       loss_to_minimize = self._reinforce_shared_loss
       if self._hps.coverage:
@@ -472,19 +512,25 @@ class SummarizationModel(BaseModel):
         loss_to_minimize = self._pointer_cov_total_loss
 
     tvars = tf.trainable_variables()
-    gradients = tf.gradients(loss_to_minimize, tvars, aggregation_method=tf.AggregationMethod.EXPERIMENTAL_TREE)
+    gradients = tf.gradients(
+        loss_to_minimize, 
+        tvars, 
+        aggregation_method=tf.AggregationMethod.EXPERIMENTAL_TREE)
 
     # Clip the gradients
     with tf.device("/gpu:{}".format(self._hps.gpu_num)):
-      grads, global_norm = tf.clip_by_global_norm(gradients, self._hps.max_grad_norm)
+      grads, global_norm = tf.clip_by_global_norm(
+          gradients, self._hps.max_grad_norm)
 
     # Add a summary
     tf.summary.scalar('global_norm', global_norm)
 
     # Apply adagrad optimizer
-    optimizer = tf.train.AdagradOptimizer(self._hps.lr, initial_accumulator_value=self._hps.adagrad_init_acc)
+    optimizer = tf.train.AdagradOptimizer(
+        self._hps.lr, initial_accumulator_value=self._hps.adagrad_init_acc)
     with tf.device("/gpu:{}".format(self._hps.gpu_num)):
-      self._shared_train_op = optimizer.apply_gradients(zip(grads, tvars), global_step=self.global_step, name='train_step')
+      self._shared_train_op = optimizer.apply_gradients(
+          zip(grads, tvars), global_step=self.global_step, name='train_step')
 
   def build_graph(self):
     """Add the placeholders, model, global step, train_op and summaries to the
@@ -513,8 +559,8 @@ class SummarizationModel(BaseModel):
       max_art_oovs: number of OOV tokens in current batch.
 
     Returns:
-      transitions:
-        Experiences collected from decoders' outputs. (batch_size, k, max_dec_steps)
+      transitions: Experiences collected from decoders' outputs. (batch_size, k,
+        max_dec_steps)
     """
 
     feed_dict = self._make_feed_dict(batch)
@@ -593,7 +639,9 @@ class SummarizationModel(BaseModel):
     return trasitions
 
   def caluclate_advantage_function(self, _ss, _gts, vsize_extended):
-    """Collect R, Q, V, and A for the given sequence of ground-truth and generated summary
+    """Collect R, Q, V, and A for the given sequence of ground-truth and 
+    generated summary
+
     Args:
       _ss: A list of generated tokens (max_dec_steps) 
       _gts: A list of ground-truth tokens (max_dec_steps)
@@ -607,8 +655,8 @@ class SummarizationModel(BaseModel):
       
     """
 
-    R = np.zeros((self._hps.max_dec_steps, vsize_extended)) # shape (max_dec_steps, vocab_size)
-    Q = np.zeros((self._hps.max_dec_steps, vsize_extended)) # shape (max_dec_steps, vocab_size)
+    R = np.zeros((self._hps.max_dec_steps, vsize_extended)) 
+    Q = np.zeros((self._hps.max_dec_steps, vsize_extended)) 
     for t in range(self._hps.max_dec_steps,0,-1):
       R[t-1][:] = self.reward(t, _ss, _gts, vsize_extended)
       # We find true Q-values.
@@ -636,17 +684,20 @@ class SummarizationModel(BaseModel):
 
     return [self.calc_reward(t, _ss,_gts) for t in range(1,self._hps.max_dec_steps+1)]
 
-  def prepare_dqn_transitions(self, hps, decoder_states, greedy_samples, vsize_extended):
+  def prepare_dqn_transitions(self, hps, decoder_states, greedy_samples, 
+      vsize_extended):
     """Prepare the experiences for this batch
     Args:
       hps: model paramters
-      decoder_states: decode output states (max_dec_steps, batch_size, hidden_dim)
-      greedy_samples: set of tokens selected through greedy selection, list of size batch_size each contains
+      decoder_states: decode output states (max_dec_steps, batch_size, 
+        hidden_dim)
+      greedy_samples: set of tokens selected through greedy selection, list of 
+        size batch_size each contains
       max_dec_steps tokens.
 
     Returns:
-      transitions:
-        List of experiences collected for this batch (batch_size, k, max_dec_steps)
+      transitions: List of experiences collected for this batch (batch_size, k,
+        max_dec_steps)
     """
     # all variables must have the shape (batch_size, k, <=max_dec_steps, feature_len)
     decoder_states = np.transpose(np.stack(decoder_states),[1,0,2]) # now of shape (batch_size, <=max_dec_steps, hidden_dim)
@@ -737,11 +788,15 @@ class SummarizationModel(BaseModel):
         loss
     """
     feed_dict = self._make_feed_dict(batch)
+
+    # eta
     if self._hps.ac_training or self._hps.rl_training:
       if self._hps.fixed_eta:
         feed_dict[self._eta] = self._hps.eta
       else:
         feed_dict[self._eta] = min(step * self._hps.eta, 1.)
+
+    # sampling
     if self._hps.scheduled_sampling:
       if self._hps.fixed_sampling_probability:
         feed_dict[self._sampling_probability] = self._hps.sampling_probability
@@ -754,6 +809,7 @@ class SummarizationModel(BaseModel):
           ] # to avoid overflow
       # linear decay function
       feed_dict[self._alpha] = np.log(ranges[np.argmin(ranges)]) 
+
     if self._hps.ac_training:
       self.q_estimates = q_estimates
       feed_dict[self._q_estimates]= self.q_estimates
@@ -770,6 +826,7 @@ class SummarizationModel(BaseModel):
       to_return['sampled_sentence_r_values'] = self._sampled_rouges
       to_return['greedy_sentence_r_values'] = self._greedy_rouges
 
+    # loss
     if self._hps.coverage:
       to_return['coverage_loss'] = self._coverage_loss
       if self._hps.rl_training or self._hps.ac_training:
