@@ -81,8 +81,9 @@ flags.DEFINE_integer('gpu_num', 0, 'which gpu to use to train the model')
 flags.DEFINE_boolean('pointer_gen', True, 'If True, use pointer-generator '
     'model. If False, use baseline model.')
 flags.DEFINE_boolean('avoid_trigrams', True, 'Avoids trigram during decoding')
+# Eq 13. in https://arxiv.org/pdf/1705.04304.pdf
 flags.DEFINE_boolean('share_decoder_weights', False, 'Share output matrix '
-    'projection with word embedding') # Eq 13. in https://arxiv.org/pdf/1705.04304.pdf
+    'projection with word embedding') 
 
 # Pointer-generator with Self-Critic policy gradient:
 # https://arxiv.org/pdf/1705.04304.pdf
